@@ -9,6 +9,8 @@ I am an AI/DL PhD student working primarily on:
 
 I come from a theoretical background, so feel free to get mathematical in discussions when relevant.
 
+**Working relationship:** Think of this as a research engineer (you) and research scientist (me) collaboration. I typically have the higher-level understanding of the goal and research direction; you have stronger technical execution skills. This means: trust my judgment on *what* we're doing and *why*, but push back on *how* when you see a better path — consistent with the "push back when warranted" principle below.
+
 ## Development Philosophy
 
 **Minimum-Edit Distance Principle:**
@@ -37,7 +39,7 @@ source .venv/bin/activate  # or venv/bin/activate, etc.
 
 ## SLURM Compute Cluster Context
 
-I work on a SLURM compute cluster. Keep the following in mind:
+I work on the Mila SLURM compute cluster. For detailed node specs, GPU selection, storage, partitions, monitoring, and job debugging, also see the `/slurm` skill. Keep the following in mind:
 
 ### Before Running Scripts
 - **ALWAYS verify you are on a compute node, not a login node** before running computational tasks
@@ -64,6 +66,91 @@ When submitting jobs, allocate resources appropriate to the task:
 - Match CPU count to GPU count (typically 4-8 CPUs per GPU)
 - Always check memory requirements before submission
 
+### Mila Cluster Node Inventory
+
+| Nodes | Count | GPUs | CPUs | RAM | Local Disk |
+|---|---|---|---|---|---|
+| cn-a[001-011] | 11 | 8x RTX8000 (48GB) | 40 | 384GB | 3.6TB |
+| cn-b[001-005] | 5 | 8x V100 (32GB) | 40 | 384GB | 3.6TB |
+| cn-c[001-040] | 40 | 8x RTX8000 (48GB) | 64 | 384GB | 3TB |
+| cn-g[001-029] | 29 | 4x A100 (80GB) | 64 | 1024GB | 7TB |
+| cn-i001 | 1 | 4x A100 (80GB) | 64 | 1024GB | 3.6TB |
+| cn-j001 | 1 | 8x A6000 (48GB) | 64 | 1024GB | 3.6TB |
+| cn-k[001-004] | 4 | 4x A100 (40GB) | 48 | 512GB | 3.6TB |
+| cn-l[001-091] | 91 | 4x L40S (48GB) | 48 | 1024GB | 7TB |
+| cn-n[001-002] | 2 | 8x H100 (80GB) | 192 | 2048GB | 35TB |
+| cn-d[001-002] (DGX) | 2 | 8x A100 (40GB) | 128 | 1024GB | 14TB |
+| cn-d[003-004] (DGX) | 2 | 8x A100 (80GB) | 128 | 2048GB | 28TB |
+| cn-e[002-003] (DGX) | 2 | 8x V100 (32GB) | 40 | 512GB | 7TB |
+| cn-f[001-004] (CPU) | 4 | none | 32 | 256GB | 10TB |
+| cn-h[001-004] (CPU) | 4 | none | 64 | 768GB | 7TB |
+| cn-m[001-004] (CPU) | 4 | none | 96 | 1024GB | 7TB |
+
+**Key takeaway:** L40S nodes (91 nodes, 4 GPUs each) are by far the most plentiful. RTX8000 and A100-80GB are also abundant. H100 nodes are rare (only 2 nodes). GPUs per node varies (4 or 8) — don't request more GPUs than a node has.
+
+### Mila Cluster Partitions
+
+| Partition | Time Limit | QOS | Per-User Limits | Best For |
+|---|---|---|---|---|
+| `long` (default) | 7 days | normal | No apparent per-user GPU/CPU/mem cap | Multi-day training, running many jobs in parallel |
+| `main` | 5 days | main-partition | 2 GPUs, 8 CPUs, 48GB mem | Single larger jobs |
+| `short` | 3 hours | short-partition | 4 GPUs, 1TB mem | Quick tests, interactive debugging |
+| `unkillable` | 2 days | unkillable-partition | 1 GPU, 6 CPUs, 32GB mem | Jobs that must not be preempted |
+
+**Key notes:**
+- `long` is the go-to for running multiple small jobs in parallel (no per-user GPU cap under QOS=normal)
+- `main` caps at 2 GPUs total per user — can only run 1-2 GPU jobs concurrently
+- `-grace` variants (e.g. `long-grace`, `main-grace`) share the same node pool but give a grace period before preemption
+- CPU-only partitions exist (`*-cpu` variants) — QOS enforces `gres/gpu=0`, so don't submit GPU jobs there
+- When using `torchrun`, always set `--master_port=$((29500 + SLURM_JOB_ID % 10000))` to avoid port collisions on shared nodes
+
+### Preemption Hierarchy
+
+Jobs are preempted in priority order: **unkillable > main > long**. A higher-priority partition's job can kill a lower-priority one. `main` jobs will NOT preempt other `main` jobs regardless of fair-use.
+
+- Once preempted, your job is **killed and automatically re-queued** on the same partition
+- **Checkpointing is critical for `long` partition jobs** — save frequently so preemption doesn't lose progress
+- `-grace` variants give a grace period (SIGTERM) before the kill, allowing cleanup
+
+### GPU Selection Syntax
+
+Request GPUs by name, architecture, memory, or attributes:
+
+```bash
+--gres=gpu:a100l:1        # specific GPU type
+--gres=gpu:48gb:1         # any GPU with 48GB VRAM (RTX8000, A6000, L40S)
+--gres=gpu:ampere:1       # any Ampere-arch GPU (A100, A6000, L40S)
+--gres=gpu:nvlink:1       # NVLink-connected GPUs
+--gres=gpu:dgx:1          # DGX system GPUs
+```
+
+Memory tags: `12gb`, `32gb`, `40gb`, `48gb`, `80gb`. Architecture tags: `volta`, `turing`, `ampere`.
+
+### Storage Paths & Quotas
+
+| Path | Quota | Speed | Purge Policy |
+|---|---|---|---|
+| `$HOME` (`/home/mila/<u>/<user>/`) | 100GB / 1M files | Low | Daily backup |
+| `$SCRATCH` (`/network/scratch/<u>/<user>/`) | 5TB / unlimited files | High | **Files unused >90 days deleted** (accelerates at >90% capacity) |
+| `$SLURM_TMPDIR` | No quota | **Highest** | **Cleared after each job** |
+| `/network/projects/<group>/` | 1TB / 1M files | Fair | Shared project storage |
+| `$ARCHIVE` (`/network/archive/<u>/<user>/`) | 5TB | Low | No backup, **not on GPU nodes** |
+| `/network/datasets/` | read-only | High | Curated datasets |
+| `/network/weights/` | read-only | High | Model weights |
+
+**Critical I/O best practice — use `$SLURM_TMPDIR`:**
+```bash
+# At job start: copy data to fast local disk
+cp -r $SCRATCH/my_dataset $SLURM_TMPDIR/
+# Train using local path
+python train.py --data_dir $SLURM_TMPDIR/my_dataset
+# At job end: copy results back
+cp -r $SLURM_TMPDIR/checkpoints $SCRATCH/my_experiment/
+```
+
+- **Write logs and outputs to `$SCRATCH`, not `$HOME`** — excessive I/O on `/home` degrades the shared filesystem
+- Check quota with `disk-quota` command
+
 ### Job Submission Structure
 - **ALWAYS place submission scripts in a dedicated folder within the repository** (e.g., `scripts/`, `jobs/`, or `slurm_scripts/`)
 - This keeps cluster-specific code organized and separate from core logic
@@ -71,7 +158,7 @@ When submitting jobs, allocate resources appropriate to the task:
 ### Before Expensive Operations
 **ALWAYS perform these checks:**
 1. **Test code on small instances FIRST** - Before launching any script that will run experiments, ALWAYS test it on a small problem/subset with reduced parameters (e.g., 1 problem, shorter generation, smaller checkpoint interval) to verify it works correctly
-2. **Get explicit sign-off before submitting jobs** - Even in skip permissions mode, ALWAYS ask for confirmation before running `sbatch` to submit jobs. I want to review and approve job submissions.
+2. **Get explicit sign-off before EVERY job submission** - ALWAYS show me what will be submitted (resource specs, configs, key changes) and wait for explicit approval before running `sbatch`. This applies to every submission — including resubmissions, even if I approved a previous version. Approval for one submission does NOT carry over to modified resubmissions.
 3. **Sanity-check data paths and dimensions on small batches first**
 4. **Verify GPU availability/allocation before training or submitting scripts**
 5. **Dry-run or validate configs before submitting long jobs**
@@ -88,6 +175,9 @@ print(f"Target shape: {sample_batch['target'].shape}")
 output = model(sample_batch['input'][:2])  # Just 2 samples
 print(f"Output shape: {output.shape}")
 ```
+
+### Configuring Experiments
+- **Always check for existing config flags before patching code.** When you need to change training behavior (e.g., save frequency, eval frequency, logging), first check if there's already a config parameter or CLI flag that controls it. Only modify source code as a last resort — this follows the minimum-edit distance principle: toggling a config value is a smaller edit than changing the training loop.
 
 ## Planning and Communication
 
@@ -143,20 +233,34 @@ Each forked repo may have different conventions, so always check the current set
 
 ### Communication Style
 
-**IMPORTANT: Be Concise by Default**
+**CRITICAL: Be Concise by Default**
 
-When I ask a question, answer in a conversational style with minimal additional text. Do not give huge text-heavy responses unless I explicitly ask for them.
+Your default mode is **CONCISE**. Answer the question asked, nothing more.
 
-**Example:**
-When I ask: "Just to be clear the model weights will be frozen right? Only the MLP/weight vector will be backpropped through"
+**Rules:**
+1. **Simple questions get simple answers** — 2-3 sentences max
+2. **Yes/no questions get yes/no answers** — don't expand into multi-paragraph explanations unless asked
+3. **Before writing tables, code blocks, or multi-option analyses** — check if the user explicitly requested them. If not, DON'T include them.
+4. **When uncertain about detail level** — default to brief and offer to elaborate
 
-Good response: "Yes, absolutely! The LLM weights are completely frozen. Only the weighting module parameters get gradients."
+**Example of good conciseness:**
+User: "Just to be clear the model weights will be frozen right? Only the MLP/weight vector will be backpropped through"
 
-Bad response: Long explanations with diagrams, code examples, tables, etc. unless I specifically request them.
+✓ Good: "Yes, absolutely! The LLM weights are completely frozen. Only the weighting module parameters get gradients."
+
+✗ Bad: Long explanations with diagrams, code examples, tables, comparisons, etc. unless specifically requested.
+
+**Example with yes/no questions:**
+User: "Wouldn't changing the batch size affect performance though?"
+
+✓ Good: "Yes — changing batch size would affect the effective learning dynamics and make results non-comparable to the baseline experiments."
+
+✗ Bad: Multi-paragraph response with tables showing different options, performance analysis, pros/cons lists, etc.
 
 **Other style notes:**
+- **Planning tasks are an exception** — be verbose with code snippets and design explanations (see Planning section)
 - **Ask about preferred output format when presenting results/metrics** if it's not clear from context
-- You can get mathematical and detailed - I appreciate theoretical depth
+- You can get mathematical and detailed when discussing theory — I appreciate theoretical depth
 - Be explicit about assumptions and edge cases
 
 ## Code Quality
