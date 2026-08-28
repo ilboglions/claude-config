@@ -257,5 +257,7 @@ The following custom skills are available in `~/.claude/skills/`. **Proactively 
 | `/experiment` | Planning, scaffolding, or launching ML experiments |
 | `/git` | Branching, rebasing, cherry-picking, conflict resolution |
 | `/paper` | Summarizing or analyzing academic papers |
+| `/lit-review` | Finding, triaging, and synthesizing related work |
 | `/plot` | Creating paper-quality matplotlib/seaborn figures |
 | `/matteo-writing` | Drafting or editing academic prose in my style |
+| `/prereview` | Critiquing my draft as a reviewer would; parsing reviews and drafting rebuttals |
