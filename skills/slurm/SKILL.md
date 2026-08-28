@@ -138,6 +138,16 @@ Write logs/outputs to `$SCRATCH`, not `$HOME` — excessive I/O on `/home` degra
 
 - Max **1000 jobs** per user in the system at any time
 
+## When Claude Itself Runs Inside an Allocation
+
+If the Claude Code session was started with `salloc`/`sbatch` (e.g. a `mila-code` job), the shell already sits inside a job. Three things change:
+
+- **The session scratchpad is node-local.** `/tmp` on a compute node is per-job local NVMe (`findmnt` shows `/<jobid>/.<jobid>/_tmp`), the same storage as `$SLURM_TMPDIR`. It does not exist on any other node, so **never `sbatch` from it and never point `--output`/`--error`/`--chdir` at it** — the job lands on a different node, cannot create its working dir, and dies in seconds with exit 1 and no log files. Submit from `$SCRATCH` instead.
+- **`SLURM_JOB_ID` is already set**, so a nested `srun` becomes a job *step* of the current allocation rather than a new one — it inherits that allocation's CPUs and GPUs (often zero). Use `sbatch` for new work; only use bare `srun` when a step inside the current allocation is genuinely what is wanted.
+- **`squeue -u $USER` lists the session's own job.** Filter it out before reporting on experiments — compare against `$SLURM_JOB_ID` — or an idle queue looks like a running job.
+
+Also note the session's own node may be CPU-only, so `hostname` confirming "a compute node" does not imply a GPU is present. Check `nvidia-smi` separately.
+
 ## Safety
 
 - **Never submit jobs (`sbatch`) without explicit user confirmation**
