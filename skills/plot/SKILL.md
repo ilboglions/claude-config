@@ -36,7 +36,3 @@ Help the user create publication-quality figures.
 - **Read existing plotting code first** — match the style if figures already exist in the project
 - **Save figures to a sensible path** — e.g. `figures/` or `plots/`
 - **Use `fig, ax` API** — not `plt.plot()` directly. This makes multi-panel and customization easier.
-
-## Scope
-
-$ARGUMENTS

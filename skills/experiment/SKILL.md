@@ -31,7 +31,7 @@ Before jumping to implementation, think critically:
 
 ## Experiment Hygiene
 
-- **Name runs descriptively** — encode key hyperparams in the run name (e.g. `qwq32b_math500_softmax_k15_cs01`)
+- **Name runs descriptively** — encode key hyperparams in the run name (e.g. `olmo7b_lacuna_simnpo_lr1e-5_seed42`)
 - **Log everything needed to reproduce** — full config, git hash, command used, random seed
 - **Save checkpoints to a path with the run name** — avoid overwriting previous experiments
 - **Separate stdout and stderr** — use `--output` and `--error` in SLURM scripts
@@ -42,7 +42,3 @@ Before jumping to implementation, think critically:
 - **Verify data paths exist and are accessible from compute nodes**
 - **Check GPU availability with `savail`**
 - **Get explicit user sign-off before `sbatch`**
-
-## Scope
-
-$ARGUMENTS

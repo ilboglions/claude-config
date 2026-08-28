@@ -49,7 +49,3 @@ When suggesting debugging steps, prefer quick print-based checks:
 ```python
 print(f"tensor: dtype={t.dtype}, device={t.device}, shape={t.shape}")
 ```
-
-## Scope
-
-$ARGUMENTS

@@ -28,7 +28,3 @@ For each issue found:
 If no issues are found, say so — don't invent problems.
 
 Make no mistakes.
-
-## Scope
-
-$ARGUMENTS

@@ -31,7 +31,3 @@ Provide a structured summary:
 - Focus on the key differences in assumptions, method, and results
 - Use a table when comparing multiple papers on the same axes
 - Note which results are directly comparable vs not (different datasets, metrics, etc.)
-
-## Scope
-
-$ARGUMENTS

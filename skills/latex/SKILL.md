@@ -26,7 +26,3 @@ Help the user write, edit, or debug LaTeX documents.
 - **Math clarity over compactness.** Use `\left( \right)` only when needed. Prefer readable notation.
 - **For compilation errors**, explain the root cause, don't just give the fix.
 - **Never invent citations.** Flag if a reference is needed.
-
-## Scope
-
-$ARGUMENTS

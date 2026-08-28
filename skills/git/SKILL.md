@@ -31,7 +31,3 @@ Help the user with git operations beyond basic add/commit/push.
 - Never run `--force`, `--hard`, `clean -f`, or `branch -D` without asking first
 - Never skip hooks (`--no-verify`) unless explicitly requested
 - When in doubt, suggest creating a backup branch before risky operations
-
-## Scope
-
-$ARGUMENTS

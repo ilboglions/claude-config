@@ -45,30 +45,47 @@ You can also request GPUs by memory, architecture, or feature:
 
 ## Node Inventory
 
-| Nodes | Count | GPUs | CPUs | RAM |
-|---|---|---|---|---|
-| cn-l[001-091] | 91 | 4x L40S (48GB) | 48 | 1024GB |
-| cn-c[001-040] | 40 | 8x RTX8000 (48GB) | 64 | 384GB |
-| cn-g[001-029] | 29 | 4x A100 (80GB) | 64 | 1024GB |
-| cn-a[001-011] | 11 | 8x RTX8000 (48GB) | 40 | 384GB |
-| cn-b[001-005] | 5 | 8x V100 (32GB) | 40 | 384GB |
-| cn-k[001-004] | 4 | 4x A100 (40GB) | 48 | 512GB |
-| cn-n[001-002] | 2 | 8x H100 (80GB) | 192 | 2048GB |
-| cn-d[001-004] (DGX) | 4 | 8x A100 (40/80GB) | 128 | 1024-2048GB |
-| cn-j001 | 1 | 8x A6000 (48GB) | 64 | 1024GB |
+| Nodes | Count | GPUs | CPUs | RAM | Local Disk |
+|---|---|---|---|---|---|
+| cn-l[001-091] | 91 | 4x L40S (48GB) | 48 | 1024GB | 7TB |
+| cn-c[001-040] | 40 | 8x RTX8000 (48GB) | 64 | 384GB | 3TB |
+| cn-g[001-029] | 29 | 4x A100 (80GB) | 64 | 1024GB | 7TB |
+| cn-a[001-011] | 11 | 8x RTX8000 (48GB) | 40 | 384GB | 3.6TB |
+| cn-b[001-005] | 5 | 8x V100 (32GB) | 40 | 384GB | 3.6TB |
+| cn-k[001-004] | 4 | 4x A100 (40GB) | 48 | 512GB | 3.6TB |
+| cn-n[001-002] | 2 | 8x H100 (80GB) | 192 | 2048GB | 35TB |
+| cn-d[001-002] (DGX) | 2 | 8x A100 (40GB) | 128 | 1024GB | 14TB |
+| cn-d[003-004] (DGX) | 2 | 8x A100 (80GB) | 128 | 2048GB | 28TB |
+| cn-e[002-003] (DGX) | 2 | 8x V100 (32GB) | 40 | 512GB | 7TB |
+| cn-i001 | 1 | 4x A100 (80GB) | 64 | 1024GB | 3.6TB |
+| cn-j001 | 1 | 8x A6000 (48GB) | 64 | 1024GB | 3.6TB |
 
-GPUs per node is either 4 or 8 — don't request more than the node type has.
+CPU-only nodes:
+
+| Nodes | Count | CPUs | RAM | Local Disk |
+|---|---|---|---|---|
+| cn-f[001-004] | 4 | 32 | 256GB | 10TB |
+| cn-h[001-004] | 4 | 64 | 768GB | 7TB |
+| cn-m[001-004] | 4 | 96 | 1024GB | 7TB |
+
+**Key takeaway:** L40S nodes (91 nodes, 4 GPUs each) are by far the most plentiful. RTX8000 and A100-80GB are also abundant. H100 nodes are rare (only 2). GPUs per node is either 4 or 8 — don't request more than the node type has.
 
 ## Partitions & Preemption
 
-| Partition | Time Limit | Per-User Limits |
-|---|---|---|
-| `long` (default) | 7 days | No per-user GPU cap |
-| `main` | 5 days | 2 GPUs, 8 CPUs, 48GB |
-| `short` | 3 hours | 4 GPUs, 1TB mem |
-| `unkillable` | 2 days | 1 GPU, 6 CPUs, 32GB |
+| Partition | Time Limit | QOS | Per-User Limits | Best For |
+|---|---|---|---|---|
+| `long` (default) | 7 days | normal | No apparent per-user GPU/CPU/mem cap | Multi-day training, many parallel jobs |
+| `main` | 5 days | main-partition | 2 GPUs, 8 CPUs, 48GB mem | Single larger jobs |
+| `short` | 3 hours | short-partition | 4 GPUs, 1TB mem | Quick tests, interactive debugging |
+| `unkillable` | 2 days | unkillable-partition | 1 GPU, 6 CPUs, 32GB mem | Jobs that must not be preempted |
 
-**Preemption hierarchy:** unkillable > main > long. Once preempted, jobs are killed and auto-requeued. `main` jobs do NOT preempt other `main` jobs. `-grace` variants give a SIGTERM grace period before kill. **Checkpoint frequently on `long` partition.**
+- `long` is the go-to for running many small jobs in parallel (no per-user GPU cap under QOS=normal)
+- `main` caps at 2 GPUs total per user — only 1-2 GPU jobs concurrently
+- `-grace` variants (`long-grace`, `main-grace`) share the same node pool but give a SIGTERM grace period before preemption
+- CPU-only partitions exist (`*-cpu` variants) — QOS enforces `gres/gpu=0`, so don't submit GPU jobs there
+- With `torchrun`, always set `--master_port=$((29500 + SLURM_JOB_ID % 10000))` to avoid port collisions on shared nodes
+
+**Preemption hierarchy:** unkillable > main > long. A higher-priority partition's job can kill a lower-priority one; `main` jobs do NOT preempt other `main` jobs regardless of fair-use. Once preempted, a job is killed and automatically re-queued on the same partition. **Checkpoint frequently on `long`** so preemption does not lose progress.
 
 ## Storage
 
@@ -80,7 +97,18 @@ GPUs per node is either 4 or 8 — don't request more than the node type has.
 | `/network/projects/<group>/` | 1TB / 1M files | Shared project storage |
 | `$ARCHIVE` | 5TB | No backup, not on GPU nodes |
 
-**Always copy data to `$SLURM_TMPDIR` at job start for performance.** Write logs/outputs to `$SCRATCH`, not `$HOME`. Check usage with `disk-quota`.
+**Copy data to `$SLURM_TMPDIR` at job start for performance:**
+
+```bash
+# At job start: copy data to fast local disk
+cp -r $SCRATCH/my_dataset $SLURM_TMPDIR/
+# Train using local path
+python train.py --data_dir $SLURM_TMPDIR/my_dataset
+# At job end: copy results back
+cp -r $SLURM_TMPDIR/checkpoints $SCRATCH/my_experiment/
+```
+
+Write logs/outputs to `$SCRATCH`, not `$HOME` — excessive I/O on `/home` degrades the shared filesystem. Check usage with `disk-quota`.
 
 ## Module System
 
@@ -115,7 +143,3 @@ GPUs per node is either 4 or 8 — don't request more than the node type has.
 - **Never submit jobs (`sbatch`) without explicit user confirmation**
 - Verify paths and configs before submission
 - Test on small instances first when possible
-
-## Scope
-
-$ARGUMENTS

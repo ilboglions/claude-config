@@ -1,0 +1,50 @@
+{
+  "theme": "dark",
+  "tui": "fullscreen",
+  "agentPushNotifEnabled": true,
+  "permissions": {
+    "allow": [
+      "Bash(squeue *)",
+      "Bash(sacct *)",
+      "Bash(sinfo *)",
+      "Bash(scontrol show *)",
+      "Bash(sstat *)",
+      "Bash(sshare *)",
+      "Bash(sprio *)",
+      "Bash(savail)",
+      "Bash(disk-quota)",
+      "Bash(hostname)",
+      "Bash(nvidia-smi)",
+      "Bash(nvidia-smi *)",
+      "Bash(module list)",
+      "Bash(module avail *)",
+      "Bash(module spider *)",
+      "Bash(git status *)",
+      "Bash(git log *)",
+      "Bash(git diff *)",
+      "Bash(git show *)",
+      "Bash(ls *)",
+      "Bash(cat *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(wc *)",
+      "Bash(du *)",
+      "Bash(df *)",
+      "Bash(find *)",
+      "Bash(grep *)",
+      "Bash(rg *)",
+      "Bash(python --version)",
+      "Bash(pip list *)",
+      "Bash(pip show *)"
+    ],
+    "ask": [
+      "Bash(sbatch *)",
+      "Bash(srun *)",
+      "Bash(salloc *)",
+      "Bash(scancel *)"
+    ],
+    "deny": [
+      "Bash(rm -rf *)"
+    ]
+  }
+}

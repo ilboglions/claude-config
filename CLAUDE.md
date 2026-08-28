@@ -1,15 +1,16 @@
-# Claude Context - Michael Rizvi-Martel
+# Claude Context - Matteo Boglioni
 
 ## About Me
-I am an AI/DL PhD student working primarily on:
-- LLM/Transformer-based models
-- Length generalization in toy models
-- Reasoning (latent CoT reasoning, math problem performance, etc.)
+I am a first-year PhD student in Computer Science at McGill University and Mila (Quebec AI Institute), advised by Siva Reddy. Previously I completed an MSc at ETH Zurich. I work primarily on:
+- **AI safety for LLMs** — red-teaming and model auditing as proactive techniques for uncovering vulnerabilities in existing models
+- **Machine unlearning** — especially localization precision: whether unlearning truly erases knowledge from a model's parameters or merely obfuscates it
+- **ML privacy and security** — differential privacy, privacy auditing, membership inference, canary design
+- **LLM robustness and generalization**
 - Python codebases with PyTorch
 
-I come from a theoretical background, so feel free to get mathematical in discussions when relevant.
+I am comfortable with the underlying math, so feel free to get technical and formal in discussions when it is relevant.
 
-**Working relationship:** Think of this as a research engineer (you) and research scientist (me) collaboration. I typically have the higher-level understanding of the goal and research direction; you have stronger technical execution skills. This means: trust my judgment on *what* we're doing and *why*, but push back on *how* when you see a better path — consistent with the "push back when warranted" principle below.
+**Working relationship:** Think of this as a collaboration between peers, not a hierarchy. Challenge my research ideas openly — the direction and the framing, not only the implementation. But never silently substitute your judgment for mine: if you disagree with what I asked for, say so and we discuss it *before* you implement anything. Raising the objection is your job; making the call is mine.
 
 ## Development Philosophy
 
@@ -66,90 +67,9 @@ When submitting jobs, allocate resources appropriate to the task:
 - Match CPU count to GPU count (typically 4-8 CPUs per GPU)
 - Always check memory requirements before submission
 
-### Mila Cluster Node Inventory
+### Cluster Reference
 
-| Nodes | Count | GPUs | CPUs | RAM | Local Disk |
-|---|---|---|---|---|---|
-| cn-a[001-011] | 11 | 8x RTX8000 (48GB) | 40 | 384GB | 3.6TB |
-| cn-b[001-005] | 5 | 8x V100 (32GB) | 40 | 384GB | 3.6TB |
-| cn-c[001-040] | 40 | 8x RTX8000 (48GB) | 64 | 384GB | 3TB |
-| cn-g[001-029] | 29 | 4x A100 (80GB) | 64 | 1024GB | 7TB |
-| cn-i001 | 1 | 4x A100 (80GB) | 64 | 1024GB | 3.6TB |
-| cn-j001 | 1 | 8x A6000 (48GB) | 64 | 1024GB | 3.6TB |
-| cn-k[001-004] | 4 | 4x A100 (40GB) | 48 | 512GB | 3.6TB |
-| cn-l[001-091] | 91 | 4x L40S (48GB) | 48 | 1024GB | 7TB |
-| cn-n[001-002] | 2 | 8x H100 (80GB) | 192 | 2048GB | 35TB |
-| cn-d[001-002] (DGX) | 2 | 8x A100 (40GB) | 128 | 1024GB | 14TB |
-| cn-d[003-004] (DGX) | 2 | 8x A100 (80GB) | 128 | 2048GB | 28TB |
-| cn-e[002-003] (DGX) | 2 | 8x V100 (32GB) | 40 | 512GB | 7TB |
-| cn-f[001-004] (CPU) | 4 | none | 32 | 256GB | 10TB |
-| cn-h[001-004] (CPU) | 4 | none | 64 | 768GB | 7TB |
-| cn-m[001-004] (CPU) | 4 | none | 96 | 1024GB | 7TB |
-
-**Key takeaway:** L40S nodes (91 nodes, 4 GPUs each) are by far the most plentiful. RTX8000 and A100-80GB are also abundant. H100 nodes are rare (only 2 nodes). GPUs per node varies (4 or 8) — don't request more GPUs than a node has.
-
-### Mila Cluster Partitions
-
-| Partition | Time Limit | QOS | Per-User Limits | Best For |
-|---|---|---|---|---|
-| `long` (default) | 7 days | normal | No apparent per-user GPU/CPU/mem cap | Multi-day training, running many jobs in parallel |
-| `main` | 5 days | main-partition | 2 GPUs, 8 CPUs, 48GB mem | Single larger jobs |
-| `short` | 3 hours | short-partition | 4 GPUs, 1TB mem | Quick tests, interactive debugging |
-| `unkillable` | 2 days | unkillable-partition | 1 GPU, 6 CPUs, 32GB mem | Jobs that must not be preempted |
-
-**Key notes:**
-- `long` is the go-to for running multiple small jobs in parallel (no per-user GPU cap under QOS=normal)
-- `main` caps at 2 GPUs total per user — can only run 1-2 GPU jobs concurrently
-- `-grace` variants (e.g. `long-grace`, `main-grace`) share the same node pool but give a grace period before preemption
-- CPU-only partitions exist (`*-cpu` variants) — QOS enforces `gres/gpu=0`, so don't submit GPU jobs there
-- When using `torchrun`, always set `--master_port=$((29500 + SLURM_JOB_ID % 10000))` to avoid port collisions on shared nodes
-
-### Preemption Hierarchy
-
-Jobs are preempted in priority order: **unkillable > main > long**. A higher-priority partition's job can kill a lower-priority one. `main` jobs will NOT preempt other `main` jobs regardless of fair-use.
-
-- Once preempted, your job is **killed and automatically re-queued** on the same partition
-- **Checkpointing is critical for `long` partition jobs** — save frequently so preemption doesn't lose progress
-- `-grace` variants give a grace period (SIGTERM) before the kill, allowing cleanup
-
-### GPU Selection Syntax
-
-Request GPUs by name, architecture, memory, or attributes:
-
-```bash
---gres=gpu:a100l:1        # specific GPU type
---gres=gpu:48gb:1         # any GPU with 48GB VRAM (RTX8000, A6000, L40S)
---gres=gpu:ampere:1       # any Ampere-arch GPU (A100, A6000, L40S)
---gres=gpu:nvlink:1       # NVLink-connected GPUs
---gres=gpu:dgx:1          # DGX system GPUs
-```
-
-Memory tags: `12gb`, `32gb`, `40gb`, `48gb`, `80gb`. Architecture tags: `volta`, `turing`, `ampere`.
-
-### Storage Paths & Quotas
-
-| Path | Quota | Speed | Purge Policy |
-|---|---|---|---|
-| `$HOME` (`/home/mila/<u>/<user>/`) | 100GB / 1M files | Low | Daily backup |
-| `$SCRATCH` (`/network/scratch/<u>/<user>/`) | 5TB / unlimited files | High | **Files unused >90 days deleted** (accelerates at >90% capacity) |
-| `$SLURM_TMPDIR` | No quota | **Highest** | **Cleared after each job** |
-| `/network/projects/<group>/` | 1TB / 1M files | Fair | Shared project storage |
-| `$ARCHIVE` (`/network/archive/<u>/<user>/`) | 5TB | Low | No backup, **not on GPU nodes** |
-| `/network/datasets/` | read-only | High | Curated datasets |
-| `/network/weights/` | read-only | High | Model weights |
-
-**Critical I/O best practice — use `$SLURM_TMPDIR`:**
-```bash
-# At job start: copy data to fast local disk
-cp -r $SCRATCH/my_dataset $SLURM_TMPDIR/
-# Train using local path
-python train.py --data_dir $SLURM_TMPDIR/my_dataset
-# At job end: copy results back
-cp -r $SLURM_TMPDIR/checkpoints $SCRATCH/my_experiment/
-```
-
-- **Write logs and outputs to `$SCRATCH`, not `$HOME`** — excessive I/O on `/home` degrades the shared filesystem
-- Check quota with `disk-quota` command
+Node inventory, partition limits, preemption hierarchy, GPU selection syntax, and storage quotas live in the `/slurm` skill. Load it whenever writing job scripts or choosing resources; do not guess these values from memory.
 
 ### Job Submission Structure
 - **ALWAYS place submission scripts in a dedicated folder within the repository** (e.g., `scripts/`, `jobs/`, or `slurm_scripts/`)
@@ -283,7 +203,7 @@ When encountering dtype mismatches, device errors, or tensor shape issues:
 3. **Note dtype/device conversions**: Explicit casts (`.float()`, `.cuda()`) and implicit promotions
 4. **Identify the mismatch**: Where does the actual vs expected dtype/device diverge?
 
-**Example from soft thinking dtype bug:**
+**Worked example (mixed-precision logits pipeline):**
 - Model outputs logits in bf16
 - LogitsProcessor explicitly converts to fp32 (`.float()`) for numerical stability
 - All downstream operations (softmax, topk) remain fp32
@@ -293,9 +213,9 @@ When encountering dtype mismatches, device errors, or tensor shape issues:
 
 **Don't assume dtypes are preserved** - many operations (normalization, softmax, division) may promote to fp32 for numerical reasons. Always verify with test scripts or trace through the actual code path.
 
-## Multi-Agent Task Decomposition (Based on Rizvi-Martel et al., 2025)
+## Multi-Agent Task Decomposition
 
-When spawning sub-agents (e.g., via the Task tool), classify the task into one of three regimes before deciding on parallelism. This follows the depth–communication tradeoff framework from [Multi-Agent Reasoning](https://arxiv.org/abs/2510.13903).
+When spawning sub-agents (e.g., via the Task tool), classify the task into one of three regimes before deciding on parallelism. This follows the depth–communication tradeoff framework from [Multi-Agent Reasoning](https://arxiv.org/abs/2510.13903) (Rizvi-Martel et al., 2025).
 
 ### Regime 1: Independent Lookups (Parallelize freely)
 Tasks where each sub-agent works on an independent shard with no cross-dependency.
@@ -338,3 +258,4 @@ The following custom skills are available in `~/.claude/skills/`. **Proactively 
 | `/git` | Branching, rebasing, cherry-picking, conflict resolution |
 | `/paper` | Summarizing or analyzing academic papers |
 | `/plot` | Creating paper-quality matplotlib/seaborn figures |
+| `/matteo-writing` | Drafting or editing academic prose in my style |

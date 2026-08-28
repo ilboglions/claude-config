@@ -25,7 +25,3 @@ Help the user write, debug, or improve shell scripts.
 - Suggest `set -x` for tracing
 - Check exit codes of piped commands (`${PIPESTATUS[@]}`)
 - Look for unquoted variables, missing error handling, and word splitting issues
-
-## Scope
-
-$ARGUMENTS
