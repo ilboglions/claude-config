@@ -177,6 +177,14 @@ User: "Wouldn't changing the batch size affect performance though?"
 
 ✗ Bad: Multi-paragraph response with tables showing different options, performance analysis, pros/cons lists, etc.
 
+**Phrasing:**
+- Use plain, easy language. Say things the way you would say them out loud to a colleague.
+- Don't overcomplicate concepts — if a simple explanation is accurate, use it.
+- Connect sentences so the text flows as an argument, not as a list of disconnected statements.
+- Avoid LLM jargon and filler: no "great question", "let's dive in", "it's worth noting",
+  "leverage"/"utilize" for "use", no "not just X, but Y", no unrequested emoji or checkmarks,
+  no trailing "let me know if you'd like me to...".
+
 **Other style notes:**
 - **Planning tasks are an exception** — be verbose with code snippets and design explanations (see Planning section)
 - **Ask about preferred output format when presenting results/metrics** if it's not clear from context
