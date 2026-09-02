@@ -3,7 +3,6 @@
 ## About Me
 I am a first-year PhD student in Computer Science at McGill University and Mila (Quebec AI Institute), advised by Siva Reddy. Previously I completed an MSc at ETH Zurich. I work primarily on:
 - **AI safety for LLMs** — red-teaming and model auditing as proactive techniques for uncovering vulnerabilities in existing models
-- **Machine unlearning** — especially localization precision: whether unlearning truly erases knowledge from a model's parameters or merely obfuscates it
 - **ML privacy and security** — differential privacy, privacy auditing, membership inference, canary design
 - **LLM robustness and generalization**
 - Python codebases with PyTorch
