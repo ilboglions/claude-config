@@ -46,5 +46,6 @@
     "deny": [
       "Bash(rm -rf *)"
     ]
-  }
+  },
+  "remoteControlAtStartup": false
 }
