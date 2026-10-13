@@ -16,6 +16,7 @@ Includes a `CLAUDE.md` with project-level instructions and a set of custom skill
 | `/experiment` | Planning, scaffolding, and launching ML experiments |
 | `/git` | Branching, rebasing, cherry-picking, conflict resolution |
 | `/paper` | Summarizing and analyzing academic papers |
+| `/paper-review` | Backing my own review points on a paper with evidence; bullet-point review skeleton |
 | `/lit-review` | Finding, triaging, and synthesizing related work |
 | `/plot` | Paper-quality matplotlib/seaborn figures |
 | `/matteo-writing` | Drafting or editing academic prose in Matteo's style |
