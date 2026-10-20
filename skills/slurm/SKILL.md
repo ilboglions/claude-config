@@ -231,9 +231,9 @@ Write logs/outputs to `$SCRATCH`, not `$HOME` — excessive I/O on `/home` degra
 
 - Max **1000 jobs** per user in the system at any time
 
-## When Claude Itself Runs Inside an Allocation
+## When the Agent Itself Runs Inside an Allocation
 
-If the Claude Code session was started with `salloc`/`sbatch` (e.g. a `mila-code` job), the shell already sits inside a job. Three things change:
+If the agent session (Claude Code or Codex) was started with `salloc`/`sbatch` (e.g. a `mila-code` job), the shell already sits inside a job. Three things change:
 
 - **The session scratchpad is node-local.** `/tmp` on a compute node is per-job local NVMe (`findmnt` shows `/<jobid>/.<jobid>/_tmp`), the same storage as `$SLURM_TMPDIR`. It does not exist on any other node, so **never `sbatch` from it and never point `--output`/`--error`/`--chdir` at it** — the job lands on a different node, cannot create its working dir, and dies in seconds with exit 1 and no log files. Submit from `$SCRATCH` instead.
 - **`SLURM_JOB_ID` is already set**, so a nested `srun` becomes a job *step* of the current allocation rather than a new one — it inherits that allocation's CPUs and GPUs (often zero). Use `sbatch` for new work; only use bare `srun` when a step inside the current allocation is genuinely what is wanted.
@@ -270,7 +270,7 @@ Alliance clusters are defined in `~/.ssh/config` **on both the Mac and Mila** (t
 file covers `tamia fir killarney vulcan narval nibi rorqual` via `%h.alliancecan.ca`). Both use
 `ControlMaster auto` so Duo 2FA fires only when no master socket exists.
 
-**The agreed workflow: the user opens the session, Claude reuses it.**
+**The agreed workflow: the user opens the session, the agent reuses it.**
 
 1. Check for a live master before anything else:
    ```bash
@@ -286,7 +286,7 @@ file covers `tamia fir killarney vulcan narval nibi rorqual` via `%h.alliancecan
 socket only works on the machine whose process is listening. Mila's `$HOME` is shared NFS, so a
 socket created on login-1 is *visible* from every compute node but dead there. Therefore:
 
-| Claude runs on | User must open `ssh tamia` on |
+| The agent runs on | User must open `ssh tamia` on |
 |---|---|
 | the Mac | the Mac |
 | a Mila compute node | **that same compute node** |

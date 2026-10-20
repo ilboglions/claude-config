@@ -1,4 +1,4 @@
-# Claude Context - Matteo Boglioni
+# Agent Context - Matteo Boglioni
 
 ## About Me
 I am a first-year PhD student in Computer Science at McGill University and Mila (Quebec AI Institute), advised by Siva Reddy. Previously I completed an MSc at ETH Zurich. I work primarily on:
@@ -222,7 +222,7 @@ When encountering dtype mismatches, device errors, or tensor shape issues:
 
 ## Multi-Agent Task Decomposition
 
-When spawning sub-agents (e.g., via the Task tool), classify the task into one of three regimes before deciding on parallelism. This follows the depth–communication tradeoff framework from [Multi-Agent Reasoning](https://arxiv.org/abs/2510.13903) (Rizvi-Martel et al., 2025).
+When spawning sub-agents, classify the task into one of three regimes before deciding on parallelism. This follows the depth–communication tradeoff framework from [Multi-Agent Reasoning](https://arxiv.org/abs/2510.13903) (Rizvi-Martel et al., 2025).
 
 ### Regime 1: Independent Lookups (Parallelize freely)
 Tasks where each sub-agent works on an independent shard with no cross-dependency.
@@ -252,7 +252,7 @@ Tasks where each step depends on the output of the previous one — the multi-ho
 
 ## Custom Skills
 
-The following custom skills are available in `~/.claude/skills/`. **Proactively invoke these when they are relevant to the task at hand** — do not wait for the user to explicitly call them. If the user is debugging a PyTorch error, load `/pytorch-debug`. If they ask about a plot, load `/plot`. Match the skill to the context.
+The following custom skills are available in `~/.claude/skills/` (Claude Code) and `~/.agents/skills/` (Codex). They are written as `/name` here and inside the skills; in Codex the same skill is invoked as `$name`. **Proactively invoke these when they are relevant to the task at hand** — do not wait for the user to explicitly call them. If the user is debugging a PyTorch error, load `/pytorch-debug`. If they ask about a plot, load `/plot`. Match the skill to the context.
 
 | Command | When to use |
 |---|---|

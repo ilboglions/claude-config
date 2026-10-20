@@ -1,0 +1,9 @@
+# Codex counterpart of settings.json. Copy it, don't symlink it: Codex writes
+# per-project trust entries (with absolute paths) into this file.
+sandbox_mode = "workspace-write"
+approval_policy = "on-request"
+model_reasoning_effort = "xhigh"
+
+[sandbox_workspace_write]
+# paperfinder and lit-review curl OpenAlex and arXiv
+network_access = true

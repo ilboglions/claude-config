@@ -1,0 +1,42 @@
+# Codex counterpart of the permissions block in settings.json, ported 1:1.
+# Note that in Codex "allow" also runs the command outside the sandbox.
+
+# allow: read-only cluster and inspection commands run without a prompt
+prefix_rule(pattern = ["squeue"])
+prefix_rule(pattern = ["sacct"])
+prefix_rule(pattern = ["sinfo"])
+prefix_rule(pattern = ["scontrol", "show"])
+prefix_rule(pattern = ["sstat"])
+prefix_rule(pattern = ["sshare"])
+prefix_rule(pattern = ["sprio"])
+prefix_rule(pattern = ["savail"])
+prefix_rule(pattern = ["disk-quota"])
+prefix_rule(pattern = ["hostname"])
+prefix_rule(pattern = ["nvidia-smi"])
+prefix_rule(pattern = ["module", ["list", "avail", "spider"]])
+prefix_rule(pattern = ["git", ["status", "log", "diff", "show"]])
+prefix_rule(pattern = ["ls"])
+prefix_rule(pattern = ["cat"])
+prefix_rule(pattern = ["head"])
+prefix_rule(pattern = ["tail"])
+prefix_rule(pattern = ["wc"])
+prefix_rule(pattern = ["du"])
+prefix_rule(pattern = ["df"])
+prefix_rule(pattern = ["find"])
+prefix_rule(pattern = ["grep"])
+prefix_rule(pattern = ["rg"])
+prefix_rule(pattern = ["python", "--version"])
+prefix_rule(pattern = ["pip", ["list", "show"]])
+
+# prompt: job submission and cancellation ask every single time
+prefix_rule(pattern = ["sbatch"], decision = "prompt")
+prefix_rule(pattern = ["srun"], decision = "prompt")
+prefix_rule(pattern = ["salloc"], decision = "prompt")
+prefix_rule(pattern = ["scancel"], decision = "prompt")
+
+# forbidden
+prefix_rule(
+    pattern = ["rm", "-rf"],
+    decision = "forbidden",
+    justification = "rm -rf is blocked; delete specific files instead.",
+)

@@ -1,10 +1,13 @@
 # claude-config
 
 Personal Claude Code configuration for AI safety / ML privacy research development.
+It also works with OpenAI Codex (see [Codex](#codex)).
 
 Includes a `CLAUDE.md` with project-level instructions and a set of custom skills tailored to an ML research workflow on a SLURM compute cluster.
 
 ## Skills
+
+In Codex, invoke a skill as `$name` instead of `/name`.
 
 | Command | Description |
 |---|---|
@@ -36,6 +39,10 @@ Includes a `CLAUDE.md` with project-level instructions and a set of custom skill
   modified resubmission.
 - **`permissions.deny`** — `rm -rf` is blocked outright.
 
+`codex/default.rules` ports the same three lists to Codex as `allow`, `prompt`
+and `forbidden` rules. One difference: in Codex, `allow` also runs the command
+outside the sandbox.
+
 ## Usage
 
 Symlink the skills into your personal Claude Code skills directory, so edits you
@@ -57,3 +64,24 @@ ln -sfn "$(pwd)/settings.json" ~/.claude/settings.json
 
 (Copying with `cp -r` works too, but then live edits never make it back under
 version control.)
+
+## Codex
+
+Codex reads the same skills and instructions from different places, and keeps
+permissions in a separate rules file:
+
+```bash
+mkdir -p ~/.agents/skills ~/.codex/rules
+for d in skills/*/; do
+  ln -sfn "$(pwd)/$d" ~/.agents/skills/"$(basename "$d")"
+done
+ln -sfn "$(pwd)/CLAUDE.md" ~/.codex/AGENTS.md
+ln -sfn "$(pwd)/codex/default.rules" ~/.codex/rules/default.rules
+cp -n codex/config.toml ~/.codex/config.toml
+```
+
+When you pick "always allow" for a command, Codex appends a rule to
+`~/.codex/rules/default.rules`, so it lands in this repo through the symlink.
+`config.toml` is copied instead, because Codex writes per-project trust entries
+with absolute paths into it. `cp -n` leaves an existing one alone, so merge by
+hand if you already have one. Restart Codex after changing either file.
