@@ -268,4 +268,5 @@ The following custom skills are available in `~/.claude/skills/`. **Proactively 
 | `/lit-review` | Finding, triaging, and synthesizing related work |
 | `/plot` | Creating paper-quality matplotlib/seaborn figures |
 | `/matteo-writing` | Drafting or editing academic prose in my style |
+| `/smart-rephrasing` | Making my text flow better while keeping my sentences and wording; fixes typos and grammar |
 | `/prereview` | Critiquing my draft as a reviewer would; parsing reviews and drafting rebuttals |

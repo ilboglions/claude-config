@@ -1,7 +1,4 @@
 {
-  "theme": "dark",
-  "tui": "fullscreen",
-  "agentPushNotifEnabled": true,
   "permissions": {
     "allow": [
       "Bash(squeue *)",
@@ -37,15 +34,31 @@
       "Bash(pip list *)",
       "Bash(pip show *)"
     ],
+    "deny": [
+      "Bash(rm -rf *)"
+    ],
     "ask": [
       "Bash(sbatch *)",
       "Bash(srun *)",
       "Bash(salloc *)",
       "Bash(scancel *)"
-    ],
-    "deny": [
-      "Bash(rm -rf *)"
     ]
   },
-  "remoteControlAtStartup": false
+  "model": "opus",
+  "modelSettings": {
+    "claude-fable-5-1": {
+      "effortLevel": "xhigh"
+    },
+    "claude-opus-5": {
+      "effortLevel": "xhigh"
+    },
+    "claude-opus-5-5": {
+      "effortLevel": "xhigh"
+    }
+  },
+  "tui": "fullscreen",
+  "theme": "auto",
+  "switchModelsOnFlag": false,
+  "remoteControlAtStartup": false,
+  "agentPushNotifEnabled": true
 }

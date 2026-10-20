@@ -20,6 +20,7 @@ Includes a `CLAUDE.md` with project-level instructions and a set of custom skill
 | `/lit-review` | Finding, triaging, and synthesizing related work |
 | `/plot` | Paper-quality matplotlib/seaborn figures |
 | `/matteo-writing` | Drafting or editing academic prose in Matteo's style |
+| `/smart-rephrasing` | Better flow between sentences without changing wording or content; typo and grammar fixes |
 | `/prereview` | Pre-submission peer review simulation; review parsing and rebuttal drafting |
 
 ## Settings
