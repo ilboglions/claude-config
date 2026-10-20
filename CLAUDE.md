@@ -266,6 +266,7 @@ The following custom skills are available in `~/.claude/skills/` (Claude Code) a
 | `/paper` | Summarizing or analyzing academic papers |
 | `/paper-review` | Reviewing someone else's paper: backing my points with evidence, bullet-point review skeleton |
 | `/lit-review` | Finding, triaging, and synthesizing related work |
+| `/paperfinder` | Finding papers from a topic description, expanding through the citation graph |
 | `/plot` | Creating paper-quality matplotlib/seaborn figures |
 | `/matteo-writing` | Drafting or editing academic prose in my style |
 | `/smart-rephrasing` | Making my text flow better while keeping my sentences and wording; fixes typos and grammar |

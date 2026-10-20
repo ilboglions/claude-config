@@ -21,6 +21,7 @@ In Codex, invoke a skill as `$name` instead of `/name`.
 | `/paper` | Summarizing and analyzing academic papers |
 | `/paper-review` | Backing my own review points on a paper with evidence; bullet-point review skeleton |
 | `/lit-review` | Finding, triaging, and synthesizing related work |
+| `/paperfinder` | Cold-start paper discovery from a topic, expanding through the citation graph |
 | `/plot` | Paper-quality matplotlib/seaborn figures |
 | `/matteo-writing` | Drafting or editing academic prose in Matteo's style |
 | `/smart-rephrasing` | Better flow between sentences without changing wording or content; typo and grammar fixes |
