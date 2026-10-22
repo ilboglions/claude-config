@@ -90,8 +90,9 @@ hand if you already have one. Restart Codex after changing either file.
 ## Zotero MCP
 
 `mcp/install.sh` registers [zotero-mcp](https://github.com/54yyyu/zotero-mcp)
-at user scope, through the Zotero Web API with read and write access. MCP servers
-live in `~/.claude.json`, which is not versioned, so run it once per machine
+with Claude Code at user scope, and with Codex if it is installed, through the
+Zotero Web API with read and write access. MCP servers live in `~/.claude.json`
+and `~/.codex/config.toml`, which are not versioned, so run it once per machine
 (it needs [uv](https://docs.astral.sh/uv/)).
 
 1. Create a key at <https://www.zotero.org/settings/keys/new> with **Allow library
@@ -102,7 +103,7 @@ live in `~/.claude.json`, which is not versioned, so run it once per machine
    cp mcp/zotero.env.example ~/.config/zotero-mcp.env
    chmod 600 ~/.config/zotero-mcp.env   # then fill in the values
    ```
-3. Run `mcp/install.sh`, then start a new `claude` session and check `claude mcp list`.
+3. Run `mcp/install.sh`, then check `claude mcp list` (and `codex mcp list`).
 
 The registered command sources `~/.config/zotero-mcp.env` right before starting
 the server, so the credentials reach only that process and never a config file
