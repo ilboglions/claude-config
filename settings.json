@@ -60,5 +60,6 @@
   "theme": "auto",
   "switchModelsOnFlag": false,
   "remoteControlAtStartup": false,
-  "agentPushNotifEnabled": true
+  "agentPushNotifEnabled": true,
+  "idleCompaction": false
 }
