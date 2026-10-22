@@ -86,3 +86,25 @@ When you pick "always allow" for a command, Codex appends a rule to
 `config.toml` is copied instead, because Codex writes per-project trust entries
 with absolute paths into it. `cp -n` leaves an existing one alone, so merge by
 hand if you already have one. Restart Codex after changing either file.
+
+## Zotero MCP
+
+`mcp/install.sh` registers [zotero-mcp](https://github.com/54yyyu/zotero-mcp)
+at user scope, through the Zotero Web API with read and write access. MCP servers
+live in `~/.claude.json`, which is not versioned, so run it once per machine
+(it needs [uv](https://docs.astral.sh/uv/)).
+
+1. Create a key at <https://www.zotero.org/settings/keys/new> with **Allow library
+   access** and **Allow write access** checked. The same page shows your numeric
+   user ID ("Your userID for use in API calls").
+2. Put the secrets outside the repo:
+   ```bash
+   cp mcp/zotero.env.example ~/.config/zotero-mcp.env
+   chmod 600 ~/.config/zotero-mcp.env   # then fill in the values
+   ```
+3. Run `mcp/install.sh`, then start a new `claude` session and check `claude mcp list`.
+
+The registered command sources `~/.config/zotero-mcp.env` right before starting
+the server, so the credentials reach only that process and never a config file
+or your shell. If `ZOTERO_API_KEY` is missing, the server silently falls back to
+the local Zotero desktop API instead of failing.
