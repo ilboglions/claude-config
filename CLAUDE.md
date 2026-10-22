@@ -250,6 +250,16 @@ Tasks where each step depends on the output of the previous one — the multi-ho
 - **Match agent count to genuine parallelism.** Spawning 5 agents for a task with 2 independent parts wastes 3 agents' worth of overhead.
 - **When uncertain, default to sequential.** Wrongly parallelizing a Regime 3 task wastes tokens and may produce incoherent results. Wrongly serializing a Regime 1 task just costs some latency.
 
+## References and Zotero
+
+My Zotero library (the `zotero` MCP server) is the source of truth for references.
+
+- **Cite from Zotero only.** In research work, refer to papers by their title as it appears in Zotero, so I can find them there; no links. Bib entries come from Zotero's export, never written by hand or from memory.
+- **I decide what goes in.** Propose candidates; add a paper only after I approve that specific paper. Never add in bulk.
+- **One collection per project.** The project's README names its Zotero collection (`Zotero collection: <name>`); add every approved paper there so all choices stay findable. If the README names none, ask. When starting a new project, create the collection and add that line to the README.
+- **Official venue version.** Prefer the peer-reviewed version (proceedings page, ACL Anthology, OpenReview, PMLR, publisher DOI) over the arXiv preprint when it exists.
+- **Verify after adding.** Re-read the created item and check title, authors, venue and year against the official page; fix or flag any mismatch.
+
 ## Custom Skills
 
 The following custom skills are available in `~/.claude/skills/` (Claude Code) and `~/.agents/skills/` (Codex). They are written as `/name` here and inside the skills; in Codex the same skill is invoked as `$name`. **Proactively invoke these when they are relevant to the task at hand** — do not wait for the user to explicitly call them. If the user is debugging a PyTorch error, load `/pytorch-debug`. If they ask about a plot, load `/plot`. Match the skill to the context.

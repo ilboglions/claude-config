@@ -14,7 +14,7 @@ claude mcp add --scope user zotero -- sh -c "$CMD"
 if command -v codex >/dev/null; then
   codex mcp remove zotero >/dev/null 2>&1 || true
   # Written by hand because `codex mcp add` cannot set tool approvals: every
-  # tool runs without asking except deletes and bulk edits.
+  # tool runs without asking except adding papers or files, deletes and bulk edits.
   cat >> ~/.codex/config.toml <<EOF
 
 [mcp_servers.zotero]
@@ -25,5 +25,7 @@ tools.zotero_delete_item.approval_mode = "prompt"
 tools.zotero_delete_collection.approval_mode = "prompt"
 tools.zotero_delete_annotation.approval_mode = "prompt"
 tools.zotero_batch_update.approval_mode = "prompt"
+tools.zotero_add_item.approval_mode = "prompt"
+tools.zotero_attach_file.approval_mode = "prompt"
 EOF
 fi
