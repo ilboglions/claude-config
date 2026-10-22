@@ -78,8 +78,13 @@ for d in skills/*/; do
 done
 ln -sfn "$(pwd)/CLAUDE.md" ~/.codex/AGENTS.md
 ln -sfn "$(pwd)/codex/default.rules" ~/.codex/rules/default.rules
+ln -sfn "$(pwd)/codex/cairn.config.toml" ~/.codex/cairn.config.toml
 cp -n codex/config.toml ~/.codex/config.toml
 ```
+
+`codex --profile cairn` runs Codex on Qwen served by Cairn at Mila. It needs the
+`mila` SSH connection open (its `LocalForward 8080` reaches the server) and the
+Cairn key in `CAIRN_API_KEY`. Plain `codex` keeps using OpenAI.
 
 When you pick "always allow" for a command, Codex appends a rule to
 `~/.codex/rules/default.rules`, so it lands in this repo through the symlink.

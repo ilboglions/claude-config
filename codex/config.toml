@@ -7,3 +7,12 @@ model_reasoning_effort = "xhigh"
 [sandbox_workspace_write]
 # paperfinder and lit-review curl OpenAlex and arXiv
 network_access = true
+
+# Qwen served by Cairn at Mila, reached through the `LocalForward 8080` of the
+# `mila` SSH host. Select it with `codex --profile cairn` (codex/cairn.config.toml).
+[model_providers.cairn]
+name = "Qwen3.8-Flash-Next-FP8 from Cairn at Mila"
+base_url = "http://localhost:8080/v1"
+wire_api = "responses"
+requires_openai_auth = true
+env_key = "CAIRN_API_KEY"
