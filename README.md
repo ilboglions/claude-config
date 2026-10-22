@@ -105,6 +105,9 @@ and `~/.codex/config.toml`, which are not versioned, so run it once per machine
    ```
 3. Run `mcp/install.sh`, then check `claude mcp list` (and `codex mcp list`).
 
+Both clients run every Zotero tool without asking, except deletes and bulk edits
+(`settings.json` for Claude Code, the Codex entry written by `install.sh`).
+
 The registered command sources `~/.config/zotero-mcp.env` right before starting
 the server, so the credentials reach only that process and never a config file
 or your shell. If `ZOTERO_API_KEY` is missing, the server silently falls back to

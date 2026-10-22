@@ -32,7 +32,8 @@
       "Bash(rg *)",
       "Bash(python --version)",
       "Bash(pip list *)",
-      "Bash(pip show *)"
+      "Bash(pip show *)",
+      "mcp__zotero"
     ],
     "deny": [
       "Bash(rm -rf *)"
@@ -41,7 +42,11 @@
       "Bash(sbatch *)",
       "Bash(srun *)",
       "Bash(salloc *)",
-      "Bash(scancel *)"
+      "Bash(scancel *)",
+      "mcp__zotero__zotero_delete_item",
+      "mcp__zotero__zotero_delete_collection",
+      "mcp__zotero__zotero_delete_annotation",
+      "mcp__zotero__zotero_batch_update"
     ]
   },
   "model": "opus",
