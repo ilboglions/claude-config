@@ -78,7 +78,7 @@ for d in skills/*/; do
 done
 ln -sfn "$(pwd)/CLAUDE.md" ~/.codex/AGENTS.md
 ln -sfn "$(pwd)/codex/default.rules" ~/.codex/rules/default.rules
-ln -sfn "$(pwd)/codex/cairn.config.toml" ~/.codex/cairn.config.toml
+cp -n codex/cairn.config.toml ~/.codex/cairn.config.toml
 cp -n codex/config.toml ~/.codex/config.toml
 ```
 
