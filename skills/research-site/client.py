@@ -11,6 +11,7 @@ API's JSON, with the site's own links made absolute, and raises SiteError on fai
 """
 import json
 import os
+import ssl
 import stat
 import sys
 import urllib.error
@@ -53,7 +54,20 @@ class _NoRedirects(urllib.request.HTTPRedirectHandler):
                                      headers, fp)
 
 
-_opener = urllib.request.build_opener(_NoRedirects)
+def _tls():
+    """Some Pythons (cluster modules, say) have an OpenSSL that looks for certificates in a
+    place that does not exist, and so trust no site: use the system's bundle instead."""
+    context = ssl.create_default_context()
+    paths = ssl.get_default_verify_paths()
+    if not (paths.cafile or paths.capath):
+        for bundle in ("/etc/ssl/certs/ca-certificates.crt", "/etc/pki/tls/certs/ca-bundle.crt", "/etc/ssl/cert.pem"):
+            if os.path.exists(bundle):
+                context.load_verify_locations(bundle)
+                break
+    return context
+
+
+_opener = urllib.request.build_opener(_NoRedirects, urllib.request.HTTPSHandler(context=_tls()))
 
 
 def api(method, path, payload=None):

@@ -32,10 +32,12 @@ EOF
 fi
 
 # The research site: its server runs from this checkout, so re-run after moving it.
+# --python overrides a stray .python-version (older uv obeys one even when the script
+# needs a newer Python).
 SITE="$(cd "$(dirname "$0")/.." && pwd)/skills/research-site/server.py"
 
 claude mcp remove --scope user research-site >/dev/null 2>&1 || true
-claude mcp add --scope user research-site -- uv run -q --script "$SITE"
+claude mcp add --scope user research-site -- uv run -q --python '>=3.10' --script "$SITE"
 
 if command -v codex >/dev/null; then
   codex mcp remove research-site >/dev/null 2>&1 || true
@@ -44,7 +46,7 @@ if command -v codex >/dev/null; then
 
 [mcp_servers.research-site]
 command = "uv"
-args = ["run", "-q", "--script", "$SITE"]
+args = ["run", "-q", "--python", ">=3.10", "--script", "$SITE"]
 default_tools_approval_mode = "approve"
 EOF
 fi
