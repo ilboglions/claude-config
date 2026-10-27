@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Register the Zotero MCP server (github.com/54yyyu/zotero-mcp) with Claude Code
-# (user scope) and, if installed, Codex. No credentials are stored in either
-# config: the server command sources ~/.config/zotero-mcp.env itself at launch
-# (see mcp/zotero.env.example).
+# Register the MCP servers with Claude Code (user scope) and, if installed, Codex:
+# Zotero (github.com/54yyyu/zotero-mcp) and the research site (skills/research-site).
+# No credentials are stored in either config: the Zotero command sources
+# ~/.config/zotero-mcp.env itself at launch (see mcp/zotero.env.example), and the
+# research-site server reads ~/.config/research-site.env at each call.
 set -euo pipefail
 
 VERSION=0.15.1  # pinned: review a new release before bumping
@@ -27,5 +28,23 @@ tools.zotero_delete_annotation.approval_mode = "prompt"
 tools.zotero_batch_update.approval_mode = "prompt"
 tools.zotero_add_item.approval_mode = "prompt"
 tools.zotero_attach_file.approval_mode = "prompt"
+EOF
+fi
+
+# The research site: its server runs from this checkout, so re-run after moving it.
+SITE="$(cd "$(dirname "$0")/.." && pwd)/skills/research-site/server.py"
+
+claude mcp remove --scope user research-site >/dev/null 2>&1 || true
+claude mcp add --scope user research-site -- uv run -q --script "$SITE"
+
+if command -v codex >/dev/null; then
+  codex mcp remove research-site >/dev/null 2>&1 || true
+  # Every tool runs without asking: the token cannot delete, and sharing stays on the site.
+  cat >> ~/.codex/config.toml <<EOF
+
+[mcp_servers.research-site]
+command = "uv"
+args = ["run", "-q", "--script", "$SITE"]
+default_tools_approval_mode = "approve"
 EOF
 fi

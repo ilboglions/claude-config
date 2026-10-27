@@ -26,6 +26,7 @@ In Codex, invoke a skill as `$name` instead of `/name`.
 | `/matteo-writing` | Drafting or editing academic prose in Matteo's style |
 | `/smart-rephrasing` | Better flow between sentences without changing wording or content; typo and grammar fixes |
 | `/prereview` | Pre-submission peer review simulation; review parsing and rebuttal drafting |
+| `/research-site` | Reading and writing the research site through its API (MCP server or CLI): meeting notes, results, W&B runs, papers, milestones, pages |
 
 ## Settings
 
@@ -109,6 +110,7 @@ and `~/.codex/config.toml`, which are not versioned, so run it once per machine
    chmod 600 ~/.config/zotero-mcp.env   # then fill in the values
    ```
 3. Run `mcp/install.sh`, then check `claude mcp list` (and `codex mcp list`).
+   It registers the research-site server too (below).
 
 Both clients run every Zotero tool without asking, except adding papers or files,
 deletes and bulk edits (`settings.json` for Claude Code, the Codex entry written
@@ -118,3 +120,15 @@ The registered command sources `~/.config/zotero-mcp.env` right before starting
 the server, so the credentials reach only that process and never a config file
 or your shell. If `ZOTERO_API_KEY` is missing, the server silently falls back to
 the local Zotero desktop API instead of failing.
+
+## Research-site MCP
+
+`mcp/install.sh` also registers `skills/research-site/server.py`, a local stdio
+server that gives Claude Code and Codex typed tools for the research site's API
+(the same calls as `site.py`, which stays for cron and `wandb-sync`). It runs from
+this checkout through `uv run --script`, so re-run `install.sh` if you move the repo.
+
+The token lives in `~/.config/research-site.env` (chmod 600; see
+`skills/research-site/SKILL.md`), which the server reads at each call: neither
+client config holds it. Every tool runs without asking in both clients. The token
+cannot delete anything or share projects, so those stay on the site.

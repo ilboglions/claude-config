@@ -33,7 +33,8 @@
       "Bash(python --version)",
       "Bash(pip list *)",
       "Bash(pip show *)",
-      "mcp__zotero"
+      "mcp__zotero",
+      "mcp__research-site"
     ],
     "deny": [
       "Bash(rm -rf *)"
