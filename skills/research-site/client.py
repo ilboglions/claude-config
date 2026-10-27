@@ -153,14 +153,18 @@ def add_item(project, section, title, date="", body="", status=""):
                        {"title": title, "date": date, "body": body, "status": status}))
 
 
-def change_item(project, section, item_id, title=None, date=None, body=None, status=None):
+def change_item(project, section, item_id, title=None, date=None, body=None, status=None, tags=None):
     return _linked(api("PATCH", f"{_project(project)}/sections/{int(section)}/items/{int(item_id)}",
-                       _given(title=title, date=date, body=body, status=status)))
+                       _given(title=title, date=date, body=body, status=status,
+                              tags=None if tags is None else list(tags))))
 
 
-def add_paper(project, section, link, title="", authors=(), year="", venue=""):
+def add_paper(project, section, link, title="", authors=(), year="", venue="", tags=()):
+    """link may be BibTeX (one entry or more): then the answer counts what was added,
+    updated and already there."""
     return _linked(api("POST", f"{_project(project)}/sections/{int(section)}/papers",
-                       {"link": link, "title": title, "authors": list(authors), "year": year, "venue": venue}))
+                       {"link": link, "title": title, "authors": list(authors), "year": year, "venue": venue,
+                        "tags": list(tags)}))
 
 
 def write_page(project, section, body):

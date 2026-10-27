@@ -14,9 +14,11 @@ meetings or results):
     site.py result     <project> --title T [--date D] [--url U] [--ref R] [--body ... | --body-file F]
     site.py edit-entry <project> <kind> <id> [--title T] [--date D] [--url U] [--body ... | --body-file F]
     site.py item       <project> <section> --title T [--date D] [--status S] [--body ... | --body-file F]
-    site.py edit-item  <project> <section> <item> [--title T] [--date D] [--status S] [--body ... | --body-file F]
+    site.py edit-item  <project> <section> <item> [--title T] [--date D] [--status S] [--tags "a, b"]
+                       [--body ... | --body-file F]
     site.py status     <project> <section> <item> <status>
-    site.py paper      <project> <section> <link> [--title T --authors "A; B" --year Y --venue V]
+    site.py paper      <project> <section> <link | - for BibTeX on stdin> [--tags "a, b"]
+                       [--title T --authors "A; B" --year Y --venue V]
     site.py page       <project> <section> (--body TEXT | --body-file F)
     site.py link       <project> --label L --url U [--kind K]
     site.py wandb-sync <project> <entity/wandb-project> [--metrics a,b] [--config k,l]
@@ -38,6 +40,10 @@ def body_of(args, default=""):
         return sys.stdin.read() if args.body_file == "-" else Path(args.body_file).read_text()
     body = getattr(args, "body", None)
     return default if body is None else body
+
+
+def tags_of(text):
+    return None if text is None else [t.strip() for t in text.split(",") if t.strip()]
 
 
 # ---------------------------------------------------------------- W&B
@@ -118,11 +124,12 @@ def main():
     p.add_argument("--title", required=True); p.add_argument("--date", default=""); p.add_argument("--status", default="")
     p = with_body(sub.add_parser("edit-item"), None); p.add_argument("project"); p.add_argument("section", type=int)
     p.add_argument("item", type=int); p.add_argument("--title"); p.add_argument("--date"); p.add_argument("--status")
+    p.add_argument("--tags")
     p = sub.add_parser("status"); p.add_argument("project"); p.add_argument("section", type=int)
     p.add_argument("item", type=int); p.add_argument("value")
     p = sub.add_parser("paper"); p.add_argument("project"); p.add_argument("section", type=int); p.add_argument("link")
     p.add_argument("--title", default=""); p.add_argument("--authors", default=""); p.add_argument("--year", default="")
-    p.add_argument("--venue", default="")
+    p.add_argument("--venue", default=""); p.add_argument("--tags", default="")
     p = with_body(sub.add_parser("page")); p.add_argument("project"); p.add_argument("section", type=int)
     p = sub.add_parser("link"); p.add_argument("project"); p.add_argument("--label", required=True)
     p.add_argument("--url", required=True); p.add_argument("--kind", default="")
@@ -161,17 +168,19 @@ def main():
             out = client.add_item(args.project, args.section, args.title, args.date, body_of(args), args.status)
         elif c == "edit-item":
             out = client.change_item(args.project, args.section, args.item, args.title, args.date,
-                                     body_of(args, None), args.status)
+                                     body_of(args, None), args.status, tags_of(args.tags))
         elif c == "status":
             out = client.change_item(args.project, args.section, args.item, status=args.value)
         elif c == "paper":
-            out = client.add_paper(args.project, args.section, args.link, args.title,
-                                   [a.strip() for a in args.authors.split(";") if a.strip()],
-                                   args.year, args.venue)
+            out = client.add_paper(args.project, args.section, sys.stdin.read() if args.link == "-" else args.link,
+                                   args.title, [a.strip() for a in args.authors.split(";") if a.strip()],
+                                   args.year, args.venue, tags_of(args.tags) or ())
         elif c == "page":
             out = client.write_page(args.project, args.section, body_of(args))
         else:
             out = client.add_link(args.project, args.label, args.url, args.kind)
+        if "added" in out:
+            print(f"{out['added']} added, {out['updated']} updated, {out['unchanged']} already there")
         print(out.get("url", "done"))
 
 

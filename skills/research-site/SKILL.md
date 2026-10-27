@@ -12,8 +12,9 @@ Two ways in, same API and same token:
 - **The command line**, `python3 <this skill's folder>/site.py <command>`: for machines
   without the server, for cron, and for `wandb-sync`.
 
-The token adds and changes content. It cannot delete, manage people or share projects:
-those stay with the user, on the site.
+The token adds and changes content. It cannot delete, create sections, write in a log
+(people write there, on the site), manage people or share projects: those stay with the
+user, on the site.
 
 ## Rules
 
@@ -57,15 +58,15 @@ file, never put it in a command line or a repository.
 | MCP tool | CLI | Does |
 |---|---|---|
 | `list_projects` | `projects` | Projects and their sections (id, kind, title) |
-| `list_items` | `items <project> <section>` | Items of a list or literature section, with ids, statuses and text |
+| `list_items` | `items <project> <section>` | Items of a list, literature or log section, with ids, statuses and text (papers with tags, log entries with author and time) |
 | `read_page` | `read-page <project> <section>` | A page section's markdown |
 | `list_entries` | `entries <project> meetings\|results` | Meeting notes or results, newest first |
 | `add_meeting_note` | `meeting <project> --title T [--date D] --body-file F` | Adds a meeting note (date defaults to today) |
 | `add_result` | `result <project> --title T [--url U] [--ref R] --body-file F` | Adds a result; the same `ref` again updates it |
 | `update_entry` | `edit-entry <project> meetings\|results <id> [...]` | Changes a meeting note or result |
 | `add_item` | `item <project> <section> --title T [--date D] [--status S]` | Adds to a roadmap, checklist, deadlines, ideas, questions or decisions section |
-| `update_item` | `edit-item <project> <section> <item> [...]`, `status ... <status>` | Changes an item or moves it along (roadmap: planned/doing/done; checklist: todo/done; ideas: open/keep/drop; questions: open/answered; literature: unread/reading/read) |
-| `add_paper` | `paper <project> <section> <link>` | Adds a paper from an arXiv/DOI/ACL link (details looked up); other links need a title (`--authors "A; B"`, `--year`, `--venue`) |
+| `update_item` | `edit-item <project> <section> <item> [...]`, `status ... <status>` | Changes an item or moves it along (roadmap: planned/doing/done; checklist: todo/done; ideas: open/keep/drop; questions: open/answered; literature: unread/reading/read); a paper's tags (`--tags "a, b"`) replace the old ones |
+| `add_paper` | `paper <project> <section> <link> [--tags "a, b"]` | Adds a paper from an arXiv/DOI/ACL link (details looked up; other links need a title, `--authors "A; B"`, `--year`, `--venue`), or from BibTeX (`paper <project> <section> - < refs.bib`): no lookup, the venue's page and PDF, and a paper already there (its preprint) is updated to the venue version |
 | `write_page` | `page <project> <section> --body-file F` | Replaces a page section's markdown |
 | `add_link` | `link <project> --label L --url U [--kind K]` | Adds a link to the links bar |
 

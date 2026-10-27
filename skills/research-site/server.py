@@ -70,8 +70,9 @@ def list_projects() -> dict:
 
 @tool(read_only=True)
 def list_items(project: str, section: int) -> dict:
-    """Items of a list or literature section (id, title, date, status, link, text), with the
-    statuses the section allows."""
+    """Items of a list, literature or log section (id, title, date, status, link, text), with
+    the statuses the section allows; papers come with their tags, log entries with their
+    author and the time they were written."""
     return client.items(project, section)
 
 
@@ -115,27 +116,31 @@ def update_entry(project: str, kind: Kind, entry_id: int, title: str | None = No
 def add_item(project: str, section: int, title: str, date: str = "", body: str = "",
              status: str = "") -> dict:
     """Adds an item to a roadmap, checklist, deadlines, ideas, questions or decisions
-    section. Status must be one the section allows (list_items shows them); empty means
-    the first."""
+    section (not literature: add_paper; not a log, which people write in on the site).
+    Status must be one the section allows (list_items shows them); empty means the first."""
     return client.add_item(project, section, title, date, body, status)
 
 
 @tool(overwrites=True, prose=True)
 def update_item(project: str, section: int, item_id: int, title: str | None = None,
-                date: str | None = None, body: str | None = None, status: str | None = None) -> dict:
+                date: str | None = None, body: str | None = None, status: str | None = None,
+                tags: list[str] | None = None) -> dict:
     """Changes an item, or moves it along (roadmap: planned/doing/done; checklist:
     todo/done; ideas: open/keep/drop; questions: open/answered; literature:
     unread/reading/read). Fields left out stay as they are; a new body replaces the old
-    one."""
-    return client.change_item(project, section, item_id, title, date, body, status)
+    one, and new tags (papers only) replace the old ones."""
+    return client.change_item(project, section, item_id, title, date, body, status, tags)
 
 
 @tool()
 def add_paper(project: str, section: int, link: str, title: str = "", authors: list[str] = [],
-              year: str = "", venue: str = "") -> dict:
-    """Adds a paper to a literature section from its link. arXiv, DOI and ACL Anthology links
-    are looked up; for any other link give title (and authors, year, venue)."""
-    return client.add_paper(project, section, link, title, authors, year, venue)
+              year: str = "", venue: str = "", tags: list[str] = []) -> dict:
+    """Adds a paper to a literature section, with optional tags. link is the paper's link
+    (arXiv, DOI and ACL Anthology links are looked up; for any other link give title, and
+    authors, year, venue), or BibTeX, one entry or more (from Zotero, a venue's page):
+    BibTeX needs no lookup, links the venue's page and PDF, and a paper already there under
+    the same link or title (its preprint) takes the venue's details and the tags."""
+    return client.add_paper(project, section, link, title, authors, year, venue, tags)
 
 
 @tool(overwrites=True, prose=True)
