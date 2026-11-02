@@ -40,6 +40,9 @@ In Codex, invoke a skill as `$name` instead of `/name`.
   submission" rule mechanically, so an earlier approval can never carry over to a
   modified resubmission.
 - **`permissions.deny`** — `rm -rf` is blocked outright.
+- **`attribution`** — empty strings drop the `Co-Authored-By: Claude` trailer from
+  commits and the "Generated with Claude Code" line from PR descriptions, so
+  commits carry only my name.
 
 `codex/default.rules` ports the same three lists to Codex as `allow`, `prompt`
 and `forbidden` rules. One difference: in Codex, `allow` also runs the command

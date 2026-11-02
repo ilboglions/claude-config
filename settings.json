@@ -52,6 +52,10 @@
       "mcp__zotero__zotero_attach_file"
     ]
   },
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
   "model": "opus",
   "modelSettings": {
     "claude-fable-5-1": {
