@@ -144,16 +144,13 @@ also arrives on Telegram with Yes/No buttons, and Claude messages me there only 
 it is blocked or something is urgent. The terminal prompt stays open, and whichever
 answer comes first wins. `/ooo off` turns it off.
 
-To talk to a session, reply to one of its messages on Telegram. When the session
-finishes a turn, a Stop hook keeps it waiting for my reply and hands the reply to
-Claude; a reply sent while it works is picked up at the end of the turn (👀 when
-queued, 👍 when picked up). `/to <session> <text>` reaches a session that has not
-written yet, and `/list` shows the sessions in away mode. Messages are labelled with
-the tmux session's name, which jsh passes to the job as `JSH_SESSION`, or else with
-the folder's name.
-
-Back at the terminal, whatever I type queues behind the waiting hook: `/ooo off`
-followed by Esc sends it and ends away mode.
+To talk to a session, reply to one of its messages on Telegram (👀 when queued, 👍
+when the session picks it up). When the session finishes a turn, a Stop hook waits in
+the background (`asyncRewake`) and wakes it with my reply, so the terminal stays
+usable meanwhile and `/ooo off` works at any time. `/to <session> <text>` reaches a
+session that has not written yet, and `/list` shows the sessions in away mode.
+Messages are labelled with the tmux session's name, which jsh passes to the job as
+`JSH_SESSION`, or else with the folder's name.
 
 One router, `skills/ooo/tg.py router`, is the only process talking to the bot. jsh
 (from my mymila repo) starts it in the anchor job's own

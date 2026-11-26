@@ -76,7 +76,8 @@
           {
             "type": "command",
             "command": "~/.claude/skills/ooo/tg.py stop",
-            "timeout": 86400
+            "timeout": 604800,
+            "asyncRewake": true
           }
         ]
       }

@@ -28,6 +28,7 @@ from pathlib import Path
 
 BOX = Path.home() / ".claude" / "tg"
 OUT, ANSWERS, AWAY, INBOX = BOX / "out", BOX / "answers", BOX / "away", BOX / "inbox"
+WAITING = BOX / "waiting"  # per session: the token of its newest stop-hook waiter
 STATE, ALIVE = BOX / "state.json", BOX / "router.alive"
 ENV = Path.home() / ".config" / "telegram.env"
 TOKEN, CHAT = "", 0
@@ -95,26 +96,41 @@ def hook():
         drop({"kind": "done", "id": rid})
 
 
+def read(path):
+    try:
+        return path.read_text()
+    except FileNotFoundError:
+        return None
+
+
 def stop():
     req = json.load(sys.stdin)
     sid = req.get("session_id", "none")
-    away, inbox = AWAY / sid, INBOX / sid
+    away, inbox, mark = AWAY / sid, INBOX / sid, WAITING / sid
+    if not away.exists():
+        return
+    # This runs in the background (asyncRewake in settings.json): the session goes
+    # idle as usual, and exit code 2 wakes it with what this prints on stderr.
+    # Every turn's end starts a waiter; the newest one wins and older ones leave.
+    me = secrets.token_hex(4)
+    write_atomic(mark, me)
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
-    # Hold the session here instead of letting it go idle until a reply comes in.
-    # Whatever is typed in the terminal meanwhile queues behind it; Esc ends the wait.
-    while away.exists():
-        replies = sorted(inbox.glob("*.json"))
-        if replies:
-            texts = []
-            for f in replies:
-                item = json.loads(f.read_text())
-                texts.append(item["text"])
-                drop({"kind": "delivered", "msg": item["msg"]})
-                f.unlink()
-            print(json.dumps({"decision": "block", "reason": "Matteo replied on Telegram:\n\n"
-                              + "\n\n".join(texts)
-                              + '\n\nAnswer him with ~/.claude/skills/ooo/tg.py send "..."'}))
-            return
+    while away.exists() and read(mark) == me:
+        texts = []
+        for f in sorted(inbox.glob("*.json")):
+            claimed = f.with_suffix(f".{me}")
+            try:
+                f.rename(claimed)  # atomic: a reply goes to one waiter only
+            except FileNotFoundError:
+                continue
+            item = json.loads(claimed.read_text())
+            claimed.unlink()
+            texts.append(item["text"])
+            drop({"kind": "delivered", "msg": item["msg"]})
+        if texts:
+            print("Matteo replied on Telegram:\n\n" + "\n\n".join(texts)
+                  + '\n\nAnswer him with ~/.claude/skills/ooo/tg.py send "..."', file=sys.stderr)
+            sys.exit(2)
         time.sleep(2)
 
 

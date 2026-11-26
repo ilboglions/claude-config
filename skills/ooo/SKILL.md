@@ -33,6 +33,6 @@ Matteo is not at the terminal. He reads Telegram on his phone.
   ~/.claude/skills/ooo/tg.py send "..."
   ```
   One short plain-text message that stands on its own: he reads it on a phone without the terminal in front of him. Never put secrets in it.
-- To ask him something, send the question and end your turn. The session then waits for his answer, which comes back to you as a stop-hook message starting with "Matteo replied on Telegram". Answer it with `tg.py send` as well.
+- To ask him something, send the question and end your turn. His answer wakes the session and reaches you as a hook message starting with "Matteo replied on Telegram". Answer it with `tg.py send` as well.
 - Don't use AskUserQuestion or other dialogs: they can't be answered from Telegram.
 - If the script says the router is not running, tell him in the terminal and carry on: nothing reaches Telegram until it starts.
