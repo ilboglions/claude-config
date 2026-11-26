@@ -33,6 +33,7 @@
       "Bash(python --version)",
       "Bash(pip list *)",
       "Bash(pip show *)",
+      "Bash(~/.claude/skills/ooo/tg.py *)",
       "mcp__zotero",
       "mcp__research-site"
     ],
@@ -57,6 +58,19 @@
     "pr": ""
   },
   "model": "opus",
+  "hooks": {
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/skills/ooo/tg.py hook",
+            "timeout": 86400
+          }
+        ]
+      }
+    ]
+  },
   "modelSettings": {
     "claude-fable-5-1": {
       "effortLevel": "xhigh"

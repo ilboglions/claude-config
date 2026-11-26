@@ -27,6 +27,7 @@ In Codex, invoke a skill as `$name` instead of `/name`.
 | `/smart-rephrasing` | Better flow between sentences without changing wording or content; typo and grammar fixes |
 | `/prereview` | Pre-submission peer review simulation; review parsing and rebuttal drafting |
 | `/research-site` | Reading and writing the research site through its API (MCP server or CLI): meeting notes, results, W&B runs, papers, milestones, pages |
+| `/ooo` | Away mode: permission prompts also go to Telegram with Yes/No buttons, and Claude messages me there only when blocked or urgent (`/ooo off` ends it) |
 
 ## Settings
 
@@ -135,3 +136,40 @@ The token lives in `~/.config/research-site.env` (chmod 600; see
 `skills/research-site/SKILL.md`), which the server reads at each call: neither
 client config holds it. Every tool runs without asking in both clients. The token
 cannot delete anything or share projects, so those stay on the site.
+
+## Away mode (Telegram)
+
+`/ooo` in a session turns on away mode for that session: every permission prompt
+also arrives on Telegram with Yes/No buttons, and Claude messages me there only when
+it is blocked or something is urgent. The terminal prompt stays open, and whichever
+answer comes first wins. `/ooo off` turns it off.
+
+To talk to a session, reply to one of its messages on Telegram: the router types the
+reply into that session's tmux pane. `/to <session> <text>` reaches a session that has
+not written yet, and `/list` shows the tmux sessions. Nothing is typed while a dialog
+is open in the pane, since the Enter would pick one of its options.
+
+One router, `skills/ooo/tg.py router`, is the only process talking to the bot. It
+runs on the login node that holds the tmux server. The hook and `tg.py send` only drop
+files in `~/.claude/tg`, so sessions on compute nodes need no internet access, only
+the shared `$HOME`. `settings.json` carries the hook and an allow rule for `tg.py`.
+
+Setup, once, on the cluster:
+
+1. Create a bot with @BotFather (`/newbot`) and keep the token.
+2. Put the secrets outside the repo:
+   ```bash
+   cp skills/ooo/telegram.env.example ~/.config/telegram.env
+   chmod 600 ~/.config/telegram.env   # then fill in the token
+   ~/.claude/skills/ooo/tg.py chat-id # message the bot, copy the id into the file
+   ```
+3. Start the router in its own tmux session on the login node (an explicit command,
+   so jsh does not move it onto the job):
+   ```bash
+   mkdir -p ~/.claude/tg
+   tmux new -d -s tg '~/.claude/skills/ooo/tg.py router 2>> ~/.claude/tg/router.log'
+   ```
+
+The router acts only on messages and taps from `TELEGRAM_CHAT_ID`. Anything it accepts
+is typed into a session, so keep the bot out of groups and never share its token.
+
