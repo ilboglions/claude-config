@@ -141,6 +141,7 @@ def warn_if_no_router():
 
 def send(text):
     drop({"kind": "msg", "text": text, **origin(os.environ.get("CLAUDE_CODE_SESSION_ID", ""))})
+    print("Queued for Telegram.")
     warn_if_no_router()
 
 
