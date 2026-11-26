@@ -32,7 +32,7 @@ Matteo is not at the terminal. He reads Telegram on his phone.
   ```bash
   ~/.claude/skills/ooo/tg.py send "..."
   ```
-- Send him a file whenever it says more than text: a plot, a table, a short log, a PDF. Images (PNG, JPG) show up inline, anything else arrives as a file to open, up to 50 MB. Prefer PNG for plots, and keep the caption to a line or two:
+- Send him an image whenever it says more than text: a plot, or a table rendered as a picture. Images (PNG, JPG) show up inline in the chat. Anything else arrives as a file he has to open, so send other files (a PDF, a log) only when he asks for them, and never send tables as CSV, spreadsheet or JSON files. Keep the caption to a line or two:
   ```bash
   ~/.claude/skills/ooo/tg.py send --file path/to/plot.png "📊 Loss over the first 18 iterations"
   ```
@@ -47,7 +47,7 @@ He reads them on a phone, often between other things, without the terminal in fr
 - Short: a few lines. Each message stands on its own.
 - In small blocks separated by a blank line: what happened, then what you need from him, if anything. A line break inside the quotes, or `\n`, starts a new line.
 - Plain text only. Telegram does not render Markdown: it shows the raw symbols. So no Markdown tables, asterisks, backticks or headings. Use `- ` for a short list.
-- For a table, write a few short lines (`August: 0.71`), or render it as an image (a PNG, made with matplotlib for example) and send that with `--file`. Same for anything with more than a handful of numbers.
+- For a table, write a few short lines (`August: 0.71`), or render it as a PNG image (with matplotlib, for example) and send that with `--file`. Same for anything with more than a handful of numbers. Never a CSV or other table file: he won't open it on his phone.
 - At most one or two emojis, as markers at the start of a block: ✅ done, ❌ failed, ⚠️ needs attention, ❓ question, 📊 figure.
 - Never put secrets in a message or a file.
 
