@@ -152,7 +152,7 @@ meanwhile and `/ooo off` works at any time. The bot's `/` menu offers `/list` (t
 sessions in away mode) and `/to <name> <text>` (a session that has not written yet,
 by its project or session name, case and emojis ignored).
 
-Each message starts with the session's name in bold and underlined. That is the
+Each message starts with the session's name in bold. That is the
 project's own name when its `.claude/settings.local.json` sets one:
 
 ```json

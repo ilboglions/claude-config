@@ -303,8 +303,8 @@ def fmt(text):
     return "".join(out) + html.escape(text[pos:], quote=False)
 
 
-def head(label):  # the session's name, bold and underlined, on its own line
-    return f"<b><u>{html.escape(label, quote=False)}</u></b>"
+def head(label):  # the session's name, in bold, on its own line
+    return f"<b>{html.escape(label, quote=False)}</b>"
 
 
 def send_html(method, key, text, **params):
