@@ -9,13 +9,16 @@
   tg.py send --file PATH [TEXT]
                         send him a file: images as photos, anything else as a document
   tg.py ooo on|off      turn away mode on or off for this session
+  tg.py name-check      SessionStart hook: ask once for the project's Telegram name
   tg.py chat-id         print the id of whoever messages the bot next (setup)
 
 Everything except the router only reads and drops files in ~/.claude/tg, so it
 works on any node that shares $HOME with the router, even without internet access.
 """
+import html
 import json
 import os
+import re
 import secrets
 import shutil
 import signal
@@ -66,8 +69,26 @@ def drop(item):
 def origin(sid, cwd=None):
     cwd = cwd or os.getcwd()
     # jsh (mymila) hands the tmux session's name to the shell on the job.
-    label = os.environ.get("JSH_SESSION") or os.path.basename(cwd.rstrip("/")) or cwd
-    return {"sid": sid, "label": label}
+    short = os.environ.get("JSH_SESSION") or os.path.basename(cwd.rstrip("/")) or cwd
+    # The project's own name, from env.TG_NAME in its .claude/settings.local.json.
+    return {"sid": sid, "label": os.environ.get("TG_NAME") or short, "short": short}
+
+
+def name_check():
+    """SessionStart hook: in a git project with no TG_NAME yet, have Claude ask for one."""
+    req = json.load(sys.stdin)
+    cwd = Path(req.get("cwd") or os.getcwd())
+    if "TG_NAME" in os.environ or not ENV.exists():  # answered already, or no Telegram here
+        return
+    if not any((d / ".git").exists() for d in (cwd, *cwd.parents)):
+        return
+    print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext":
+        "This project has no name yet for Matteo's Telegram away mode (/ooo). In your first "
+        "reply, ask him in one short line whether he wants to give it one: emojis are welcome "
+        "(for example \"🟦 Multi-agent detection\"), or no name. Write his answer as env.TG_NAME "
+        f"in {cwd}/.claude/settings.local.json, keeping whatever else that file holds. If he "
+        "says no, write an empty string: it means don't ask again, and Telegram keeps showing "
+        "the session's name."}}))
 
 
 def hook():
@@ -247,6 +268,10 @@ def api(method, files=None, **params):
             return json.load(r)["result"]
     except urllib.error.HTTPError as e:
         if e.code != 429:
+            try:  # Telegram says what it refused, e.g. "can't parse entities"
+                e.description = json.load(e).get("description", "")
+            except ValueError:
+                e.description = ""
             raise
         try:
             wait = json.load(e)["parameters"]["retry_after"]
@@ -264,9 +289,38 @@ def save():
     write_atomic(STATE, json.dumps(state))
 
 
+# Telegram's HTML formatting. Sessions may use these tags; everything else is escaped.
+TAGS = re.compile(r"</?(?:b|strong|i|em|u|ins|s|strike|del|code|pre|blockquote|tg-spoiler)>"
+                  r'|<a href="[^"<>]*">|</a>', re.I)
+
+
+def fmt(text):
+    """Keep Telegram's formatting tags and escape the rest, so a stray < or & breaks nothing."""
+    out, pos = [], 0
+    for m in TAGS.finditer(text):
+        out += [html.escape(text[pos:m.start()], quote=False), m.group(0)]
+        pos = m.end()
+    return "".join(out) + html.escape(text[pos:], quote=False)
+
+
+def head(label):  # the session's name, bold and underlined, on its own line
+    return f"<b><u>{html.escape(label, quote=False)}</u></b>"
+
+
+def send_html(method, key, text, **params):
+    """Send formatted; if Telegram can't parse the tags (say, one left open), send it plain."""
+    try:
+        return api(method, parse_mode="HTML", **{key: text}, **params)
+    except urllib.error.HTTPError as e:
+        if e.code != 400 or "entit" not in getattr(e, "description", ""):
+            raise
+        log(f"{method}: Telegram could not parse the formatting ({e.description}); sent it plain")
+        return api(method, **{key: html.unescape(TAGS.sub("", text))}, **params)
+
+
 def edit(msg_id, text):
     try:
-        api("editMessageText", chat_id=CHAT, message_id=msg_id, text=text)
+        send_html("editMessageText", "text", text, chat_id=CHAT, message_id=msg_id)
     except OSError:  # cosmetic: skip it rather than hold anything up
         pass
 
@@ -291,27 +345,31 @@ def deliver(item):
         react(item["msg"], "👍")
         return
     if kind == "msg":
-        m = api("sendMessage", chat_id=CHAT, text=f"[{item['label']}] {item['text']}"[:4000])
+        m = send_html("sendMessage", "text", f"{head(item['label'])}\n{fmt(item['text'][:3800])}",
+                      chat_id=CHAT)
     elif kind == "file":
         path, m = Path(item["path"]), None
-        caption = f"[{item['label']}] {item['text']}".strip()[:1024]
+        caption = head(item["label"]) + (f"\n{fmt(item['text'][:900])}" if item["text"].strip() else "")
         if path.suffix.lower() in PHOTO_TYPES and path.stat().st_size <= MAX_PHOTO:
             try:
-                m = api("sendPhoto", files={"photo": (item["name"], path.read_bytes())},
-                        chat_id=CHAT, caption=caption)
+                m = send_html("sendPhoto", "caption", caption, chat_id=CHAT,
+                              files={"photo": (item["name"], path.read_bytes())})
             except urllib.error.HTTPError as e:  # e.g. extreme proportions: send it as a file
                 if e.code != 400:
                     raise
                 log(f"sendPhoto refused {item['name']} ({e}); sending it as a document")
         if m is None:
-            m = api("sendDocument", files={"document": (item["name"], path.read_bytes())},
-                    chat_id=CHAT, caption=caption)
+            m = send_html("sendDocument", "caption", caption, chat_id=CHAT,
+                          files={"document": (item["name"], path.read_bytes())})
     else:
-        text = (f"[{item['label']}] {item['tool']}" + (f": {item['title']}" if item["title"] else "")
-                + f"\n\n{item['preview']}")[:3900]
+        esc = lambda s: html.escape(s, quote=False)
+        text = (f"{head(item['label'])}\n<b>{esc(item['tool'])}</b>"
+                + (f": {esc(item['title'][:300])}" if item["title"] else "")
+                + f"\n<pre>{esc(item['preview'])}</pre>")
         keys = [[{"text": "Yes", "callback_data": f"allow:{item['id']}"},
                  {"text": "No", "callback_data": f"deny:{item['id']}"}]]
-        m = api("sendMessage", chat_id=CHAT, text=text, reply_markup={"inline_keyboard": keys})
+        m = send_html("sendMessage", "text", text, chat_id=CHAT,
+                      reply_markup={"inline_keyboard": keys})
         state["reqs"][item["id"]] = {"msg": m["message_id"], "text": text}
     state["msgs"][str(m["message_id"])] = {"sid": item["sid"], "label": item["label"]}
 
@@ -349,10 +407,15 @@ def away_sessions():
     found = {}
     for f in AWAY.glob("*"):
         try:
-            found[f.name] = json.loads(f.read_text())["label"]
+            info = json.loads(f.read_text())
+            found[f.name] = {"label": info["label"], "short": info.get("short", info["label"])}
         except (OSError, ValueError, KeyError):
             pass
     return found
+
+
+def norm(name):  # how /to compares names: no emojis or punctuation, any case
+    return " ".join("".join(c for c in name.lower() if c.isalnum() or c.isspace()).split())
 
 
 def handle(u):
@@ -377,17 +440,28 @@ def handle(u):
     reply = lambda t: api("sendMessage", chat_id=CHAT, text=t, reply_to_message_id=m["message_id"])
     away = away_sessions()
     if text.strip() == "/list":
-        reply("Away mode: " + ", ".join(sorted(away.values())) if away
+        names = sorted(i["label"] + (f" ({i['short']})" if i["short"] != i["label"] else "")
+                       for i in away.values())
+        reply("Away mode:\n" + "\n".join(f"- {n}" for n in names) if away
               else "No session is in away mode.")
         return
     if text.startswith("/to "):
-        _, name, text = (text.split(None, 2) + [""])[:3]
-        sids = [sid for sid, label in away.items() if label == name]
-        if len(sids) != 1:
-            reply(f"No session called {name} is in away mode (/list shows them)." if not sids else
-                  f"Several sessions are called {name}: reply to one of their messages instead.")
+        # The name is the project's name or the session's, and may be several words:
+        # take the longest run of leading words that matches one.
+        words = text[4:].split()
+        for n in range(len(words), 0, -1):
+            key = norm(" ".join(words[:n]))
+            sids = [s for s, i in away.items() if key and key in (norm(i["label"]), norm(i["short"]))]
+            if sids:
+                break
+        else:
+            reply("No session with that name is in away mode (/list shows them).")
             return
-        target = {"sid": sids[0], "label": name}
+        if len(sids) > 1:
+            reply("Several sessions match that name: reply to one of their messages instead.")
+            return
+        text = text[re.match(r"/to\s+" + r"\s+".join(map(re.escape, words[:n])) + r"\s*", text).end():]
+        target = {"sid": sids[0], "label": away[sids[0]]["label"]}
     elif str(m.get("reply_to_message", {}).get("message_id")) in state["msgs"]:
         target = state["msgs"][str(m["reply_to_message"]["message_id"])]
     elif state["msgs"]:  # replies to nothing, or to a router notice: for the session that wrote last
@@ -425,9 +499,13 @@ def router():
     job = os.environ.get("SLURM_JOB_ID")
     log(f"router up on {where}" + (f", job {job}" if job else ""))
     try:
+        # Telegram suggests only the commands a bot registers.
+        api("setMyCommands", commands=[
+            {"command": "list", "description": "Sessions in away mode"},
+            {"command": "to", "description": "Message a session by name: /to <name> <text>"}])
         api("sendMessage", chat_id=CHAT, text=f"Router up on {where}" + (f" (job {job})" if job else ""))
     except OSError as e:
-        log(f"hello message: {e}")
+        log(f"startup messages: {e}")
     while True:
         try:
             updates = api("getUpdates", offset=state["offset"], timeout=50,
@@ -472,6 +550,8 @@ if __name__ == "__main__":
         send(" ".join(args[2:] if file else args), file)
     elif cmd == "ooo" and args and args[0] in ("on", "off") and len(args) <= 2:
         away_mode(args[0], args[1] if len(args) == 2 else os.environ.get("CLAUDE_CODE_SESSION_ID", ""))
+    elif cmd == "name-check":
+        name_check()
     elif cmd == "chat-id":
         chat_id()
     else:

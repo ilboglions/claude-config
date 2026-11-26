@@ -44,9 +44,10 @@ Matteo is not at the terminal. He reads Telegram on his phone.
 
 He reads them on a phone, often between other things, without the terminal in front of him.
 
-- Short: a few lines. Each message stands on its own.
+- Short: a few lines. Each message stands on its own. It already starts with the project's name in bold, so don't add a header of your own.
 - In small blocks separated by a blank line: what happened, then what you need from him, if anything. A line break inside the quotes, or `\n`, starts a new line.
-- Plain text only. Telegram does not render Markdown: it shows the raw symbols. So no Markdown tables, asterisks, backticks or headings. Use `- ` for a short list.
+- Format with Telegram's HTML tags, sparingly: `<b>bold</b>`, `<i>italic</i>`, `<u>underline</u>`, `<s>strikethrough</s>`, `<code>code</code>`, `<blockquote>quote</blockquote>`. Bold the key number or the question, for example. Close every tag you open.
+- Never Markdown: Telegram does not render it and shows the raw symbols. So no asterisks, backticks, headings or Markdown tables. Use `- ` for a short list.
 - For a table, write a few short lines (`August: 0.71`), or render it as a PNG image (with matplotlib, for example) and send that with `--file`. Same for anything with more than a handful of numbers. Never a CSV or other table file: he won't open it on his phone.
 - At most one or two emojis, as markers at the start of a block: ✅ done, ❌ failed, ⚠️ needs attention, ❓ question, 📊 figure.
 - Never put secrets in a message or a file.
@@ -54,9 +55,9 @@ He reads them on a phone, often between other things, without the terminal in fr
 For example:
 
 ```
-✅ g01 finished: 60 of 60 iterations, no errors.
+✅ g01 finished: <b>60 of 60</b> iterations, no errors.
 
 Validation F1: 0.71 in August, 0.68 in September.
 
-❓ Start g02 with the same config?
+❓ <b>Start g02 with the same config?</b>
 ```

@@ -81,6 +81,17 @@
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/skills/ooo/tg.py name-check",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   },
   "modelSettings": {

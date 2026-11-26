@@ -146,15 +146,28 @@ answer comes first wins. `/ooo off` turns it off.
 
 To talk to a session, reply to one of its messages on Telegram (👀 when queued, 👍
 when the session picks it up). A message that replies to nothing goes to the session
-whose message came last. Sessions can also send files (`tg.py send --file plot.png
-"caption"`): images arrive as photos, anything else as a document, up to 50 MB. If
-Telegram answers 429 (too many requests), the router holds every message, in order,
-until the wait Telegram asked for is over, and logs it; nothing is dropped. When the session finishes a turn, a Stop hook waits in
-the background (`asyncRewake`) and wakes it with my reply, so the terminal stays
-usable meanwhile and `/ooo off` works at any time. `/to <session> <text>` reaches a
-session that has not written yet, and `/list` shows the sessions in away mode.
-Messages are labelled with the tmux session's name, which jsh passes to the job as
-`JSH_SESSION`, or else with the folder's name.
+whose message came last. When the session finishes a turn, a Stop hook waits in the
+background (`asyncRewake`) and wakes it with my reply, so the terminal stays usable
+meanwhile and `/ooo off` works at any time. The bot's `/` menu offers `/list` (the
+sessions in away mode) and `/to <name> <text>` (a session that has not written yet,
+by its project or session name, case and emojis ignored).
+
+Each message starts with the session's name in bold and underlined. That is the
+project's own name when its `.claude/settings.local.json` sets one:
+
+```json
+{ "env": { "TG_NAME": "🟦 Multi-agent detection" } }
+```
+
+Otherwise it is the tmux session's name (`JSH_SESSION`, from jsh) or the folder's.
+In a git repository without `TG_NAME`, a SessionStart hook has Claude ask me once for
+a name; declining writes an empty `TG_NAME`, so it never asks again. Sessions format
+their messages with Telegram's HTML tags (`<b>`, `<i>`, `<u>`, ...): the router keeps
+those, escapes everything else, and resends a message plain if Telegram still cannot
+parse it. They can also send files (`tg.py send --file plot.png "caption"`): images
+arrive as photos, anything else as a document, up to 50 MB. If Telegram answers 429
+(too many requests), the router holds every message, in order, until the wait
+Telegram asked for is over, and logs it; nothing is dropped.
 
 One router, `skills/ooo/tg.py router`, is the only process talking to the bot. jsh
 (from my mymila repo) starts it in the anchor job's own
