@@ -303,8 +303,15 @@ def fmt(text):
     return "".join(out) + html.escape(text[pos:], quote=False)
 
 
-def head(label):  # the session's name, in bold, on its own line
-    return f"<b>{html.escape(label, quote=False)}</b>"
+def shown(i):  # the project's name, then the session's when it differs: "🟧 LACUNA · lacuna2"
+    short = i.get("short") or i["label"]
+    return i["label"] + (f" · {short}" if short != i["label"] else "")
+
+
+def head(i):  # the header line: the project's name in bold, the session's plain
+    short = i.get("short") or i["label"]
+    return f"<b>{html.escape(i['label'], quote=False)}</b>" + (
+        f" · {html.escape(short, quote=False)}" if short != i["label"] else "")
 
 
 def send_html(method, key, text, **params):
@@ -345,11 +352,11 @@ def deliver(item):
         react(item["msg"], "👍")
         return
     if kind == "msg":
-        m = send_html("sendMessage", "text", f"{head(item['label'])}\n{fmt(item['text'][:3800])}",
+        m = send_html("sendMessage", "text", f"{head(item)}\n{fmt(item['text'][:3800])}",
                       chat_id=CHAT)
     elif kind == "file":
         path, m = Path(item["path"]), None
-        caption = head(item["label"]) + (f"\n{fmt(item['text'][:900])}" if item["text"].strip() else "")
+        caption = head(item) + (f"\n{fmt(item['text'][:900])}" if item["text"].strip() else "")
         if path.suffix.lower() in PHOTO_TYPES and path.stat().st_size <= MAX_PHOTO:
             try:
                 m = send_html("sendPhoto", "caption", caption, chat_id=CHAT,
@@ -363,7 +370,7 @@ def deliver(item):
                           files={"document": (item["name"], path.read_bytes())})
     else:
         esc = lambda s: html.escape(s, quote=False)
-        text = (f"{head(item['label'])}\n<b>{esc(item['tool'])}</b>"
+        text = (f"{head(item)}\n<b>{esc(item['tool'])}</b>"
                 + (f": {esc(item['title'][:300])}" if item["title"] else "")
                 + f"\n<pre>{esc(item['preview'])}</pre>")
         keys = [[{"text": "Yes", "callback_data": f"allow:{item['id']}"},
@@ -371,7 +378,8 @@ def deliver(item):
         m = send_html("sendMessage", "text", text, chat_id=CHAT,
                       reply_markup={"inline_keyboard": keys})
         state["reqs"][item["id"]] = {"msg": m["message_id"], "text": text}
-    state["msgs"][str(m["message_id"])] = {"sid": item["sid"], "label": item["label"]}
+    state["msgs"][str(m["message_id"])] = {"sid": item["sid"], "label": item["label"],
+                                           "short": item.get("short", item["label"])}
 
 
 def outbox():
@@ -418,10 +426,39 @@ def norm(name):  # how /to compares names: no emojis or punctuation, any case
     return " ".join("".join(c for c in name.lower() if c.isalnum() or c.isspace()).split())
 
 
+def pick_session(reply_to=None):
+    """One button per session in away mode; tapping one opens a reply addressed to it."""
+    away = away_sessions()
+    if not away:
+        api("sendMessage", chat_id=CHAT, text="No session is in away mode.")
+        return
+    rows = [[{"text": shown(i), "callback_data": f"to:{sid}"}]
+            for sid, i in sorted(away.items(), key=lambda kv: shown(kv[1]).lower())]
+    api("sendMessage", chat_id=CHAT, text="Which session? Tap one, then write your message.",
+        reply_markup={"inline_keyboard": rows},
+        **({"reply_to_message_id": reply_to} if reply_to else {}))
+
+
+def prompt_for(sid):
+    # A reply box addressed to the session. Recorded as one of its messages, so the
+    # answer goes through the usual reply routing.
+    i = away_sessions().get(sid)
+    if not i:
+        api("sendMessage", chat_id=CHAT, text="That session is no longer in away mode.")
+        return
+    m = api("sendMessage", chat_id=CHAT, text=f"✍️ Message for {shown(i)}:",
+            reply_markup={"force_reply": True, "input_field_placeholder": f"to {shown(i)}"[:64]})
+    state["msgs"][str(m["message_id"])] = {"sid": sid, **i}
+
+
 def handle(u):
     q = u.get("callback_query")
-    if q:  # a Yes/No tap
+    if q:  # a button tap
         if q["from"]["id"] != CHAT:
+            return
+        if q.get("data", "").startswith("to:"):  # a session picked from the list
+            api("answerCallbackQuery", callback_query_id=q["id"])
+            prompt_for(q["data"][3:])
             return
         verdict, _, rid = q.get("data", "").partition(":")
         req = state["reqs"].pop(rid, None) if verdict in ("allow", "deny") else None
@@ -439,11 +476,8 @@ def handle(u):
     text = m.get("text", "")
     reply = lambda t: api("sendMessage", chat_id=CHAT, text=t, reply_to_message_id=m["message_id"])
     away = away_sessions()
-    if text.strip() == "/list":
-        names = sorted(i["label"] + (f" ({i['short']})" if i["short"] != i["label"] else "")
-                       for i in away.values())
-        reply("Away mode:\n" + "\n".join(f"- {n}" for n in names) if away
-              else "No session is in away mode.")
+    if text.strip().split("@")[0] in ("/list", "/to"):  # pick by tapping, nothing to type
+        pick_session()
         return
     if text.startswith("/to "):
         # The name is the project's name or the session's, and may be several words:
@@ -457,24 +491,23 @@ def handle(u):
         else:
             reply("No session with that name is in away mode (/list shows them).")
             return
-        if len(sids) > 1:
-            reply("Several sessions match that name: reply to one of their messages instead.")
+        if len(sids) > 1:  # several sessions in one project: let him tap the right one
+            pick_session(reply_to=m["message_id"])
             return
         text = text[re.match(r"/to\s+" + r"\s+".join(map(re.escape, words[:n])) + r"\s*", text).end():]
-        target = {"sid": sids[0], "label": away[sids[0]]["label"]}
+        target = {"sid": sids[0], **away[sids[0]]}
     elif str(m.get("reply_to_message", {}).get("message_id")) in state["msgs"]:
         target = state["msgs"][str(m["reply_to_message"]["message_id"])]
     elif state["msgs"]:  # replies to nothing, or to a router notice: for the session that wrote last
         target = state["msgs"][next(reversed(state["msgs"]))]
     else:
-        reply("No session has written yet. Use /to <session> <text>; "
-              "/list shows the sessions in away mode.")
+        pick_session(reply_to=m["message_id"])  # nobody wrote yet: let him pick
         return
     if not text.strip():
         return
     sid = target["sid"]
     if sid not in away:
-        reply(f"Not sent: {target['label']} is not in away mode, so nothing would read it.")
+        reply(f"Not sent: {shown(target)} is not in away mode, so nothing would read it.")
         return
     write_atomic(INBOX / sid / f"{time.time():.6f}.json",
                  json.dumps({"text": text, "msg": m["message_id"]}))
@@ -501,8 +534,8 @@ def router():
     try:
         # Telegram suggests only the commands a bot registers.
         api("setMyCommands", commands=[
-            {"command": "list", "description": "Sessions in away mode"},
-            {"command": "to", "description": "Message a session by name: /to <name> <text>"}])
+            {"command": "to", "description": "Pick a session and message it"},
+            {"command": "list", "description": "Sessions in away mode"}])
         api("sendMessage", chat_id=CHAT, text=f"Router up on {where}" + (f" (job {job})" if job else ""))
     except OSError as e:
         log(f"startup messages: {e}")

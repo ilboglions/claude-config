@@ -148,12 +148,15 @@ To talk to a session, reply to one of its messages on Telegram (👀 when queued
 when the session picks it up). A message that replies to nothing goes to the session
 whose message came last. When the session finishes a turn, a Stop hook waits in the
 background (`asyncRewake`) and wakes it with my reply, so the terminal stays usable
-meanwhile and `/ooo off` works at any time. The bot's `/` menu offers `/list` (the
-sessions in away mode) and `/to <name> <text>` (a session that has not written yet,
-by its project or session name, case and emojis ignored).
+meanwhile and `/ooo off` works at any time. To reach a session that has not written
+yet, tap `/to` (or `/list`) in the bot's `/` menu: it shows one button per session in
+away mode, and tapping one opens a reply addressed to it, so only the message is
+typed. `/to <name> <text>` also works, by project or session name, case and emojis
+ignored.
 
-Each message starts with the session's name in bold. That is the
-project's own name when its `.claude/settings.local.json` sets one:
+Each message starts with the session's name in bold, followed by the tmux session's
+name when the two differ (`🟧 LACUNA · lacuna2`), so two sessions in one project stay
+apart. The name is the project's own when its `.claude/settings.local.json` sets one:
 
 ```json
 { "env": { "TG_NAME": "🟦 Multi-agent detection" } }
