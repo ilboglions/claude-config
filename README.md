@@ -146,7 +146,10 @@ answer comes first wins. `/ooo off` turns it off.
 
 To talk to a session, reply to one of its messages on Telegram (👀 when queued, 👍
 when the session picks it up). A message that replies to nothing goes to the session
-whose message came last. When the session finishes a turn, a Stop hook waits in
+whose message came last. Sessions can also send files (`tg.py send --file plot.png
+"caption"`): images arrive as photos, anything else as a document, up to 50 MB. If
+Telegram answers 429 (too many requests), the router holds every message, in order,
+until the wait Telegram asked for is over, and logs it; nothing is dropped. When the session finishes a turn, a Stop hook waits in
 the background (`asyncRewake`) and wakes it with my reply, so the terminal stays
 usable meanwhile and `/ooo off` works at any time. `/to <session> <text>` reaches a
 session that has not written yet, and `/list` shows the sessions in away mode.

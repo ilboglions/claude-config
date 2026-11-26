@@ -6,6 +6,8 @@
   tg.py hook            PermissionRequest hook: while /ooo is on, also ask on Telegram
   tg.py stop            Stop hook: while /ooo is on, wait for Matteo's reply
   tg.py send TEXT       message Matteo from this session
+  tg.py send --file PATH [TEXT]
+                        send him a file: images as photos, anything else as a document
   tg.py ooo on|off      turn away mode on or off for this session
   tg.py chat-id         print the id of whoever messages the bot next (setup)
 
@@ -15,6 +17,7 @@ works on any node that shares $HOME with the router, even without internet acces
 import json
 import os
 import secrets
+import shutil
 import signal
 import socket
 import ssl
@@ -29,7 +32,10 @@ from pathlib import Path
 BOX = Path.home() / ".claude" / "tg"
 OUT, ANSWERS, AWAY, INBOX = BOX / "out", BOX / "answers", BOX / "away", BOX / "inbox"
 WAITING = BOX / "waiting"  # per session: the token of its newest stop-hook waiter
+FILES = BOX / "files"  # copies of files to send, where the router can read them
 STATE, ALIVE = BOX / "state.json", BOX / "router.alive"
+PHOTO_TYPES = {".png", ".jpg", ".jpeg", ".webp"}
+MAX_PHOTO, MAX_FILE = 10 << 20, 50 << 20  # what Telegram accepts from bots
 ENV = Path.home() / ".config" / "telegram.env"
 TOKEN, CHAT = "", 0
 
@@ -141,10 +147,23 @@ def warn_if_no_router():
         print("The router is not running: nothing reaches Telegram until it starts.")
 
 
-def send(text):
-    path = drop({"kind": "msg", "text": text,
-                 **origin(os.environ.get("CLAUDE_CODE_SESSION_ID", ""))})
-    for _ in range(10):  # the router deletes the file once Telegram has the message
+def send(text, file=None):
+    # Sessions often write "\n" for a line break inside a quoted shell argument.
+    item = {"kind": "msg", "text": text.replace("\\n", "\n"),
+            **origin(os.environ.get("CLAUDE_CODE_SESSION_ID", ""))}
+    if file:
+        src = Path(file).expanduser()
+        if not src.is_file():
+            sys.exit(f"No such file: {src}")
+        if src.stat().st_size > MAX_FILE:
+            sys.exit(f"{src.name} is over 50 MB, the most a bot can send.")
+        # Copied next to the queue: the router may run on another node than this file.
+        copy = FILES / f"{secrets.token_hex(4)}-{src.name}"
+        FILES.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(src, copy)
+        item.update(kind="file", path=str(copy), name=src.name)
+    path = drop(item)
+    for _ in range(30 if file else 10):  # the router deletes it once Telegram has it
         if not path.exists():
             print("Sent to Telegram.")
             return
@@ -196,12 +215,46 @@ SYSTEM_CA = "/etc/ssl/certs/ca-certificates.crt"
 TLS = ssl.create_default_context(cafile=SYSTEM_CA if os.path.exists(SYSTEM_CA) else None)
 
 
-def api(method, **params):
-    body = urllib.parse.urlencode({k: v if isinstance(v, (str, int)) else json.dumps(v)
-                                   for k, v in params.items()}).encode()
-    with urllib.request.urlopen(f"https://api.telegram.org/bot{TOKEN}/{method}", body,
-                                timeout=70, context=TLS) as r:
-        return json.load(r)["result"]
+class RateLimited(OSError):
+    """Telegram answered 429: nothing is sent until the wait it asked for is over."""
+
+
+pause_until = 0.0
+
+
+def api(method, files=None, **params):
+    global pause_until
+    # Calling again before the wait is over only makes Telegram extend it.
+    if method != "getUpdates" and time.time() < pause_until:
+        raise RateLimited(f"waiting {pause_until - time.time():.0f} s more")
+    fields = {k: v if isinstance(v, (str, int)) else json.dumps(v) for k, v in params.items()}
+    headers = {}
+    if files:  # multipart upload: {field: (filename, bytes)}
+        b = secrets.token_hex(16)
+        parts = [f'--{b}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'.encode()
+                 for k, v in fields.items()]
+        for k, (name, data) in files.items():
+            name = name.replace('"', "'").replace("\r", " ").replace("\n", " ")
+            parts.append(f'--{b}\r\nContent-Disposition: form-data; name="{k}"; filename="{name}"'
+                         f'\r\nContent-Type: application/octet-stream\r\n\r\n'.encode() + data + b"\r\n")
+        body = b"".join(parts) + f"--{b}--\r\n".encode()
+        headers["Content-Type"] = f"multipart/form-data; boundary={b}"
+    else:
+        body = urllib.parse.urlencode(fields).encode()
+    req = urllib.request.Request(f"https://api.telegram.org/bot{TOKEN}/{method}", body, headers)
+    try:
+        with urllib.request.urlopen(req, timeout=70, context=TLS) as r:
+            return json.load(r)["result"]
+    except urllib.error.HTTPError as e:
+        if e.code != 429:
+            raise
+        try:
+            wait = json.load(e)["parameters"]["retry_after"]
+        except (ValueError, KeyError, TypeError):
+            wait = 30
+        pause_until = time.time() + wait + 1
+        log(f"429 on {method}: Telegram asks to wait {wait} s, holding every message until then")
+        raise RateLimited(f"429, retry after {wait} s") from None
 
 
 def save():
@@ -214,7 +267,7 @@ def save():
 def edit(msg_id, text):
     try:
         api("editMessageText", chat_id=CHAT, message_id=msg_id, text=text)
-    except urllib.error.HTTPError:
+    except OSError:  # cosmetic: skip it rather than hold anything up
         pass
 
 
@@ -222,7 +275,7 @@ def react(msg_id, emoji):
     try:
         api("setMessageReaction", chat_id=CHAT, message_id=msg_id,
             reaction=[{"type": "emoji", "emoji": emoji}])
-    except urllib.error.HTTPError:
+    except OSError:  # cosmetic: skip it rather than hold anything up
         pass
 
 
@@ -239,6 +292,20 @@ def deliver(item):
         return
     if kind == "msg":
         m = api("sendMessage", chat_id=CHAT, text=f"[{item['label']}] {item['text']}"[:4000])
+    elif kind == "file":
+        path, m = Path(item["path"]), None
+        caption = f"[{item['label']}] {item['text']}".strip()[:1024]
+        if path.suffix.lower() in PHOTO_TYPES and path.stat().st_size <= MAX_PHOTO:
+            try:
+                m = api("sendPhoto", files={"photo": (item["name"], path.read_bytes())},
+                        chat_id=CHAT, caption=caption)
+            except urllib.error.HTTPError as e:  # e.g. extreme proportions: send it as a file
+                if e.code != 400:
+                    raise
+                log(f"sendPhoto refused {item['name']} ({e}); sending it as a document")
+        if m is None:
+            m = api("sendDocument", files={"document": (item["name"], path.read_bytes())},
+                    chat_id=CHAT, caption=caption)
     else:
         text = (f"[{item['label']}] {item['tool']}" + (f": {item['title']}" if item["title"] else "")
                 + f"\n\n{item['preview']}")[:3900]
@@ -252,7 +319,11 @@ def deliver(item):
 def outbox():
     while True:
         ALIVE.touch()
+        if time.time() < pause_until:  # Telegram asked to wait (429): keep everything queued
+            time.sleep(1)
+            continue
         for f in sorted(OUT.glob("*.json")):
+            item = {}
             try:
                 item = json.loads(f.read_text())
                 with lock:
@@ -260,11 +331,16 @@ def outbox():
                     save()
             except urllib.error.HTTPError as e:  # Telegram refused it: drop it
                 log(f"Telegram refused {f.name}: {e}")
-            except OSError as e:  # network trouble: keep it for the next round
-                log(f"will retry {f.name}: {e}")
+            except FileNotFoundError as e:  # its file is gone: nothing to retry
+                log(f"dropped {f.name}: {e}")
+            except OSError as e:  # network trouble or a 429: keep it, in order, for later
+                if not isinstance(e, RateLimited):
+                    log(f"will retry {f.name}: {e}")
                 break
             except (ValueError, KeyError) as e:
                 log(f"bad item {f.name}: {e}")
+            if item.get("path"):
+                Path(item["path"]).unlink(missing_ok=True)
             f.unlink(missing_ok=True)
         time.sleep(1)
 
@@ -391,8 +467,9 @@ if __name__ == "__main__":
         hook()
     elif cmd == "stop":
         stop()
-    elif cmd == "send" and args:
-        send(" ".join(args))
+    elif cmd == "send" and (args[1:] if args[:1] == ["--file"] else args):
+        file = args[1] if args[:1] == ["--file"] else None
+        send(" ".join(args[2:] if file else args), file)
     elif cmd == "ooo" and args and args[0] in ("on", "off") and len(args) <= 2:
         away_mode(args[0], args[1] if len(args) == 2 else os.environ.get("CLAUDE_CODE_SESSION_ID", ""))
     elif cmd == "chat-id":
