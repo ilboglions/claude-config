@@ -52,7 +52,9 @@ def write_atomic(path, text):
 
 
 def drop(item):
-    write_atomic(OUT / f"{time.time():.6f}-{secrets.token_hex(3)}.json", json.dumps(item))
+    path = OUT / f"{time.time():.6f}-{secrets.token_hex(3)}.json"
+    write_atomic(path, json.dumps(item))
+    return path
 
 
 def origin(sid, cwd=None):
@@ -140,8 +142,14 @@ def warn_if_no_router():
 
 
 def send(text):
-    drop({"kind": "msg", "text": text, **origin(os.environ.get("CLAUDE_CODE_SESSION_ID", ""))})
-    print("Queued for Telegram.")
+    path = drop({"kind": "msg", "text": text,
+                 **origin(os.environ.get("CLAUDE_CODE_SESSION_ID", ""))})
+    for _ in range(10):  # the router deletes the file once Telegram has the message
+        if not path.exists():
+            print("Sent to Telegram.")
+            return
+        time.sleep(0.5)
+    print("Queued for Telegram, not sent yet.")
     warn_if_no_router()
 
 
