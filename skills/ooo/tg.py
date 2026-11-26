@@ -158,7 +158,9 @@ def away_mode(state, sid):
         sys.exit("No session id: pass it, or run this from inside Claude Code.")
     flag = AWAY / sid
     if state == "off":
-        flag.unlink(missing_ok=True)
+        if flag.exists():
+            flag.unlink()
+            drop({"kind": "msg", "text": "away mode off.", **origin(sid)})
         print("away mode off")
         return
     info = origin(sid)
@@ -309,19 +311,20 @@ def handle(u):
             reply(f"No session called {name} is in away mode (/list shows them)." if not sids else
                   f"Several sessions are called {name}: reply to one of their messages instead.")
             return
-        sid = sids[0]
+        target = {"sid": sids[0], "label": name}
     elif str(m.get("reply_to_message", {}).get("message_id")) in state["msgs"]:
-        sid = state["msgs"][str(m["reply_to_message"]["message_id"])]["sid"]
+        target = state["msgs"][str(m["reply_to_message"]["message_id"])]
     elif state["msgs"]:  # replies to nothing, or to a router notice: for the session that wrote last
-        sid = state["msgs"][next(reversed(state["msgs"]))]["sid"]
+        target = state["msgs"][next(reversed(state["msgs"]))]
     else:
         reply("No session has written yet. Use /to <session> <text>; "
               "/list shows the sessions in away mode.")
         return
     if not text.strip():
         return
+    sid = target["sid"]
     if sid not in away:
-        reply("Not sent: that session is not in away mode, so nothing would read it.")
+        reply(f"Not sent: {target['label']} is not in away mode, so nothing would read it.")
         return
     write_atomic(INBOX / sid / f"{time.time():.6f}.json",
                  json.dumps({"text": text, "msg": m["message_id"]}))
