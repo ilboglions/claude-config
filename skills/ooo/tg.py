@@ -301,10 +301,12 @@ def handle(u):
                   f"Several sessions are called {name}: reply to one of their messages instead.")
             return
         sid = sids[0]
-    elif m.get("reply_to_message"):
-        sid = state["msgs"].get(str(m["reply_to_message"]["message_id"]), {}).get("sid")
+    elif str(m.get("reply_to_message", {}).get("message_id")) in state["msgs"]:
+        sid = state["msgs"][str(m["reply_to_message"]["message_id"])]["sid"]
+    elif state["msgs"]:  # replies to nothing, or to a router notice: for the session that wrote last
+        sid = state["msgs"][next(reversed(state["msgs"]))]["sid"]
     else:
-        reply("Reply to a session's message to talk to it, or use /to <session> <text>. "
+        reply("No session has written yet. Use /to <session> <text>; "
               "/list shows the sessions in away mode.")
         return
     if not text.strip():

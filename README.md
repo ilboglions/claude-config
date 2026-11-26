@@ -145,7 +145,8 @@ it is blocked or something is urgent. The terminal prompt stays open, and whiche
 answer comes first wins. `/ooo off` turns it off.
 
 To talk to a session, reply to one of its messages on Telegram (👀 when queued, 👍
-when the session picks it up). When the session finishes a turn, a Stop hook waits in
+when the session picks it up). A message that replies to nothing goes to the session
+whose message came last. When the session finishes a turn, a Stop hook waits in
 the background (`asyncRewake`) and wakes it with my reply, so the terminal stays
 usable meanwhile and `/ooo off` works at any time. `/to <session> <text>` reaches a
 session that has not written yet, and `/list` shows the sessions in away mode.
