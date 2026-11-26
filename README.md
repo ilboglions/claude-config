@@ -148,7 +148,9 @@ To talk to a session, reply to one of its messages on Telegram (👀 when queued
 when the session picks it up). A message that replies to nothing goes to the session
 whose message came last. When the session finishes a turn, a Stop hook waits in the
 background (`asyncRewake`) and wakes it with my reply, so the terminal stays usable
-meanwhile and `/ooo off` works at any time. A session that ends in away mode (exit, closed pane,
+meanwhile and `/ooo off` works at any time. A reply that arrives while Claude is working ends its turn at
+its next step and is handed over right away, like Esc followed by typing it (a reply
+sitting next to a tool result would rightly be distrusted). A session that ends in away mode (exit, closed pane,
 cancelled job) leaves it by itself and says so on Telegram. To reach a session that has not written
 yet, tap `/to` (or `/list`) in the bot's `/` menu: it shows one button per session in
 away mode, and tapping one opens a reply addressed to it, so only the message is

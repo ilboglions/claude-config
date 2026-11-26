@@ -5,6 +5,9 @@
                         it with the anchor job
   tg.py hook            PermissionRequest hook: while /ooo is on, also ask on Telegram
   tg.py stop            Stop hook: while /ooo is on, wait for Matteo's reply
+  tg.py interrupt       PostToolUse hook: a reply is waiting, end the turn now
+  tg.py wake            PostToolUse hook: then hand the reply over, once the turn has ended
+  tg.py busy            UserPromptSubmit hook: a turn is starting
   tg.py send TEXT       message Matteo from this session
   tg.py send --file PATH [TEXT]
                         send him a file: images as photos, anything else as a document
@@ -37,6 +40,7 @@ from pathlib import Path
 BOX = Path.home() / ".claude" / "tg"
 OUT, ANSWERS, AWAY, INBOX = BOX / "out", BOX / "answers", BOX / "away", BOX / "inbox"
 WAITING = BOX / "waiting"  # per session: the token of its newest stop-hook waiter
+TURN = BOX / "turn"  # per session: "busy" or "idle"
 FILES = BOX / "files"  # copies of files to send, where the router can read them
 STATE, ALIVE = BOX / "state.json", BOX / "router.alive"
 PHOTO_TYPES = {".png", ".jpg", ".jpeg", ".webp"}
@@ -94,6 +98,7 @@ def end_session(sid, info):
     """Take a session out of away mode for good, and tell Matteo (the hook and the router)."""
     (AWAY / sid).unlink(missing_ok=True)
     (WAITING / sid).unlink(missing_ok=True)
+    (TURN / sid).unlink(missing_ok=True)
     unread = list((INBOX / sid).glob("*.json"))
     for f in unread:
         f.unlink(missing_ok=True)
@@ -160,35 +165,95 @@ def read(path):
         return None
 
 
+def mark(sid, turn):
+    """Whether the session is "busy" (in a turn) or "idle". Replies are handed over only to
+    an idle session: one that arrives mid-turn sits next to a tool result, where Claude
+    rightly distrusts instructions."""
+    write_atomic(TURN / sid, turn)
+
+
+def idle_for(sid):  # seconds since the session went idle; -1 while busy or unknown
+    try:
+        f = TURN / sid
+        return time.time() - f.stat().st_mtime if f.read_text() == "idle" else -1
+    except FileNotFoundError:
+        return -1
+
+
+def hand_over(sid, idle=2):
+    """If the session has been idle for a moment and replies are waiting, wake it with
+    them (exit code 2 of an asyncRewake hook). Returns if there is nothing to hand over."""
+    if idle_for(sid) < idle:
+        return False
+    texts = claim_replies(sid)
+    if not texts:
+        return False
+    mark(sid, "busy")
+    print("Matteo replied on Telegram:\n\n" + "\n\n".join(texts)
+          + '\n\nAnswer him with ~/.claude/skills/ooo/tg.py send "..."', file=sys.stderr)
+    sys.exit(2)
+
+
 def stop():
     req = json.load(sys.stdin)
     sid = req.get("session_id", "none")
-    away, inbox, mark = AWAY / sid, INBOX / sid, WAITING / sid
+    away, mark_file = AWAY / sid, WAITING / sid
     if not away.exists():
         return
     # This runs in the background (asyncRewake in settings.json): the session goes
     # idle as usual, and exit code 2 wakes it with what this prints on stderr.
     # Every turn's end starts a waiter; the newest one wins and older ones leave.
+    mark(sid, "idle")
     me = secrets.token_hex(4)
-    write_atomic(mark, me)
+    write_atomic(mark_file, me)
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
-    while away.exists() and read(mark) == me:
-        texts = []
-        for f in sorted(inbox.glob("*.json")):
-            claimed = f.with_suffix(f".{me}")
-            try:
-                f.rename(claimed)  # atomic: a reply goes to one waiter only
-            except FileNotFoundError:
-                continue
-            item = json.loads(claimed.read_text())
-            claimed.unlink()
-            texts.append(item["text"])
-            drop({"kind": "delivered", "msg": item["msg"]})
-        if texts:
-            print("Matteo replied on Telegram:\n\n" + "\n\n".join(texts)
-                  + '\n\nAnswer him with ~/.claude/skills/ooo/tg.py send "..."', file=sys.stderr)
-            sys.exit(2)
-        time.sleep(2)
+    while away.exists() and read(mark_file) == me:
+        hand_over(sid)
+        time.sleep(1)
+
+
+def claim_replies(sid):
+    """Take this session's waiting replies, each one exactly once, and mark them read."""
+    texts, me = [], secrets.token_hex(4)
+    for f in sorted((INBOX / sid).glob("*.json")):
+        claimed = f.with_suffix(f".{me}")
+        try:
+            f.rename(claimed)  # atomic: a reply goes to one reader only
+        except FileNotFoundError:
+            continue
+        item = json.loads(claimed.read_text())
+        claimed.unlink()
+        texts.append(item["text"])
+        drop({"kind": "delivered", "msg": item["msg"]})
+    return texts
+
+
+# A reply that comes while Claude works must not wait for the turn to end. After each
+# tool call (settings.json runs these only when the inbox has something), "interrupt"
+# ends the turn, like Esc, and "wake", running in the background, wakes the session
+# with the reply once it is idle, like typing it in.
+
+def interrupt():
+    """PostToolUse hook: end the turn now, a Telegram reply is waiting."""
+    sid = json.load(sys.stdin).get("session_id", "none")
+    if (AWAY / sid).exists() and any((INBOX / sid).glob("*.json")):
+        mark(sid, "idle")
+        print(json.dumps({"continue": False, "stopReason": "📩 Telegram message from Matteo"}))
+
+
+def wake():
+    """PostToolUse hook, asyncRewake: hand the reply over once the turn has ended."""
+    sid = json.load(sys.stdin).get("session_id", "none")
+    for _ in range(60):
+        if not (AWAY / sid).exists():
+            return
+        hand_over(sid)
+        time.sleep(0.5)
+
+
+def busy():
+    """UserPromptSubmit hook: he typed in the terminal, so a turn is starting."""
+    mark(json.load(sys.stdin).get("session_id", "none"), "busy")
 
 
 def warn_if_no_router():
@@ -670,6 +735,12 @@ if __name__ == "__main__":
         name_check()
     elif cmd == "session-end":
         session_end()
+    elif cmd == "interrupt":
+        interrupt()
+    elif cmd == "wake":
+        wake()
+    elif cmd == "busy":
+        busy()
     elif cmd == "chat-id":
         chat_id()
     else:

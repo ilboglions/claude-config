@@ -103,6 +103,34 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if ls ~/.claude/tg/inbox/\"$CLAUDE_CODE_SESSION_ID\"/*.json >/dev/null 2>&1; then exec ~/.claude/skills/ooo/tg.py interrupt; fi",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "if ls ~/.claude/tg/inbox/\"$CLAUDE_CODE_SESSION_ID\"/*.json >/dev/null 2>&1; then exec ~/.claude/skills/ooo/tg.py wake; fi",
+            "asyncRewake": true,
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -e ~/.claude/tg/away/\"$CLAUDE_CODE_SESSION_ID\" ]; then exec ~/.claude/skills/ooo/tg.py busy; fi",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   },
   "modelSettings": {

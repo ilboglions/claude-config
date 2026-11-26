@@ -37,6 +37,7 @@ Matteo is not at the terminal. He reads Telegram on his phone.
   ~/.claude/skills/ooo/tg.py send --file path/to/plot.png "📊 Loss over the first 18 iterations"
   ```
 - To ask him something, send the question and end your turn. His answer wakes the session and reaches you as a hook message starting with "Matteo replied on Telegram". Answer it with `tg.py send` as well.
+- If he writes while you are working, your turn ends at your next step and his message arrives right away as a new one, also starting with "Matteo replied on Telegram". Answer it, then carry on with what you were doing, unless he asked you to stop or change course.
 - Don't use AskUserQuestion or other dialogs: they can't be answered from Telegram.
 - If the script says the router is not running, tell him in the terminal and carry on: nothing reaches Telegram until it starts.
 
