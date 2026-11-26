@@ -17,6 +17,7 @@ import os
 import secrets
 import signal
 import socket
+import ssl
 import sys
 import threading
 import time
@@ -162,11 +163,17 @@ def config():
     return conf
 
 
+# Mila's python/3.10 module ships a CA bundle that cannot verify Telegram's
+# certificate chain; the system bundle can.
+SYSTEM_CA = "/etc/ssl/certs/ca-certificates.crt"
+TLS = ssl.create_default_context(cafile=SYSTEM_CA if os.path.exists(SYSTEM_CA) else None)
+
+
 def api(method, **params):
     body = urllib.parse.urlencode({k: v if isinstance(v, (str, int)) else json.dumps(v)
                                    for k, v in params.items()}).encode()
     with urllib.request.urlopen(f"https://api.telegram.org/bot{TOKEN}/{method}", body,
-                                timeout=70) as r:
+                                timeout=70, context=TLS) as r:
         return json.load(r)["result"]
 
 
