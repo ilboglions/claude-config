@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
-"""Away mode: reach Claude Code sessions running in tmux from Telegram (see SKILL.md).
+"""Away mode: talk to Claude Code sessions from Telegram (see SKILL.md).
 
-  tg.py router          the only process talking to the bot; run it on the login
-                        node that holds your tmux server
+  tg.py router          the only process talking to the bot; jsh (mymila) starts
+                        it with the anchor job
   tg.py hook            PermissionRequest hook: while /ooo is on, also ask on Telegram
+  tg.py stop            Stop hook: while /ooo is on, wait for Matteo's reply
   tg.py send TEXT       message Matteo from this session
-  tg.py ooo on|off SID  turn away mode on or off for one session
+  tg.py ooo on|off      turn away mode on or off for this session
   tg.py chat-id         print the id of whoever messages the bot next (setup)
 
-Everything except the router only drops files in ~/.claude/tg, so it works from
-any node that shares $HOME with the router, even without internet access.
+Everything except the router only reads and drops files in ~/.claude/tg, so it
+works on any node that shares $HOME with the router, even without internet access.
 """
 import json
 import os
-import re
 import secrets
 import signal
-import subprocess
+import socket
 import sys
 import threading
 import time
@@ -26,15 +26,13 @@ import urllib.request
 from pathlib import Path
 
 BOX = Path.home() / ".claude" / "tg"
-OUT, ANSWERS, AWAY = BOX / "out", BOX / "answers", BOX / "away"
+OUT, ANSWERS, AWAY, INBOX = BOX / "out", BOX / "answers", BOX / "away", BOX / "inbox"
 STATE, ALIVE = BOX / "state.json", BOX / "router.alive"
 ENV = Path.home() / ".config" / "telegram.env"
-# Typed in front of every reply, so the session knows where to answer.
-PREFIX = '[from Telegram; answer with ~/.claude/skills/ooo/tg.py send "..."] '
 TOKEN, CHAT = "", 0
 
 
-# ---- used by the sessions (hook, send, ooo) ---------------------------------
+# ---- used by the sessions (hooks, send, ooo) --------------------------------
 
 def router_alive():
     try:
@@ -55,18 +53,18 @@ def drop(item):
     write_atomic(OUT / f"{time.time():.6f}-{secrets.token_hex(3)}.json", json.dumps(item))
 
 
-def origin(cwd=None):
-    # srun hands the pane's environment to the shell on the job, so TMUX and
-    # TMUX_PANE still name the pane on the login node.
-    return {"tmux": os.environ.get("TMUX", "").rsplit(",", 1)[0],
-            "pane": os.environ.get("TMUX_PANE", ""),
-            "cwd": cwd or os.getcwd()}
+def origin(sid, cwd=None):
+    cwd = cwd or os.getcwd()
+    # jsh (mymila) hands the tmux session's name to the shell on the job.
+    label = os.environ.get("JSH_SESSION") or os.path.basename(cwd.rstrip("/")) or cwd
+    return {"sid": sid, "label": label}
 
 
 def hook():
     req = json.load(sys.stdin)
-    away = AWAY / req.get("session_id", "none")
-    if not away.exists() or not router_alive():
+    sid = req.get("session_id", "none")
+    away = AWAY / sid
+    if not away.exists():
         return  # no output: the terminal prompt alone decides
     rid = secrets.token_hex(4)
     answer = ANSWERS / rid
@@ -76,12 +74,12 @@ def hook():
     else:
         title, preview = "", json.dumps(inp, indent=1, ensure_ascii=False)
     drop({"kind": "perm", "id": rid, "tool": req.get("tool_name", "?"), "title": title,
-          "preview": preview[:1500], **origin(req.get("cwd"))})
+          "preview": preview[:1500], **origin(sid, req.get("cwd"))})
     # The terminal prompt stays open next to this one, and an answer there wins:
     # Claude Code then lets this hook run on and ignores what it prints.
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     try:
-        while away.exists() and router_alive():
+        while away.exists():
             if answer.exists():
                 if answer.read_text().strip() == "allow":
                     decision = {"behavior": "allow"}
@@ -96,24 +94,53 @@ def hook():
         drop({"kind": "done", "id": rid})
 
 
-def send(text):
-    drop({"kind": "msg", "text": text, **origin()})
+def stop():
+    req = json.load(sys.stdin)
+    sid = req.get("session_id", "none")
+    away, inbox = AWAY / sid, INBOX / sid
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    # Hold the session here instead of letting it go idle until a reply comes in.
+    # Whatever is typed in the terminal meanwhile queues behind it; Esc ends the wait.
+    while away.exists():
+        replies = sorted(inbox.glob("*.json"))
+        if replies:
+            texts = []
+            for f in replies:
+                item = json.loads(f.read_text())
+                texts.append(item["text"])
+                drop({"kind": "delivered", "msg": item["msg"]})
+                f.unlink()
+            print(json.dumps({"decision": "block", "reason": "Matteo replied on Telegram:\n\n"
+                              + "\n\n".join(texts)
+                              + '\n\nAnswer him with ~/.claude/skills/ooo/tg.py send "..."'}))
+            return
+        time.sleep(2)
+
+
+def warn_if_no_router():
     if not router_alive():
-        print("queued, but the router is not running: nothing reaches Telegram until it starts")
+        print("The router is not running: nothing reaches Telegram until it starts.")
+
+
+def send(text):
+    drop({"kind": "msg", "text": text, **origin(os.environ.get("CLAUDE_CODE_SESSION_ID", ""))})
+    warn_if_no_router()
 
 
 def away_mode(state, sid):
+    if not sid:
+        sys.exit("No session id: pass it, or run this from inside Claude Code.")
     flag = AWAY / sid
     if state == "off":
         flag.unlink(missing_ok=True)
         print("away mode off")
         return
-    flag.parent.mkdir(parents=True, exist_ok=True)
-    flag.touch()
+    info = origin(sid)
+    write_atomic(flag, json.dumps(info))
     drop({"kind": "msg", "text": "away mode on. Reply to this message to talk to this session.",
-          **origin()})
-    print("away mode on" + ("" if router_alive() else
-          ", but the router is not running: nothing reaches Telegram until it starts"))
+          **info})
+    print("away mode on")
+    warn_if_no_router()
 
 
 # ---- router -----------------------------------------------------------------
@@ -123,7 +150,7 @@ state = {"offset": 0, "msgs": {}, "reqs": {}}  # msgs: message id -> session; re
 
 
 def log(text):
-    print(time.strftime("%H:%M:%S"), text, file=sys.stderr, flush=True)
+    print(time.strftime("%Y-%m-%d %H:%M:%S"), text, file=sys.stderr, flush=True)
 
 
 def config():
@@ -143,15 +170,6 @@ def api(method, **params):
         return json.load(r)["result"]
 
 
-def tmux(*args):
-    r = subprocess.run(["tmux", *args], capture_output=True, text=True)
-    return r.stdout.strip() if r.returncode == 0 else None
-
-
-def my_tmux():
-    return ((tmux("list-sessions", "-F", "#{socket_path},#{pid}") or "").splitlines() or [""])[0]
-
-
 def save():
     msgs = state["msgs"]
     while len(msgs) > 500:
@@ -166,17 +184,26 @@ def edit(msg_id, text):
         pass
 
 
+def react(msg_id, emoji):
+    try:
+        api("setMessageReaction", chat_id=CHAT, message_id=msg_id,
+            reaction=[{"type": "emoji", "emoji": emoji}])
+    except urllib.error.HTTPError:
+        pass
+
+
 def deliver(item):
-    if item["kind"] == "done":  # the hook stopped waiting without a Telegram answer
+    kind = item["kind"]
+    if kind == "done":  # the hook stopped waiting without a Telegram answer
         req = state["reqs"].pop(item["id"], None)
         if req:
             edit(req["msg"], req["text"] +
                  "\n\n→ expired (answered in the terminal, timed out, or away mode off)")
         return
-    item["label"] = item["cwd"].rstrip("/").rsplit("/", 1)[-1]
-    if item["pane"] and item["tmux"] == my_tmux():
-        item["label"] = tmux("display-message", "-p", "-t", item["pane"], "#S") or item["label"]
-    if item["kind"] == "msg":
+    if kind == "delivered":  # the session picked up a reply
+        react(item["msg"], "👍")
+        return
+    if kind == "msg":
         m = api("sendMessage", chat_id=CHAT, text=f"[{item['label']}] {item['text']}"[:4000])
     else:
         text = (f"[{item['label']}] {item['tool']}" + (f": {item['title']}" if item["title"] else "")
@@ -185,7 +212,7 @@ def deliver(item):
                  {"text": "No", "callback_data": f"deny:{item['id']}"}]]
         m = api("sendMessage", chat_id=CHAT, text=text, reply_markup={"inline_keyboard": keys})
         state["reqs"][item["id"]] = {"msg": m["message_id"], "text": text}
-    state["msgs"][str(m["message_id"])] = {k: item[k] for k in ("tmux", "pane", "label")}
+    state["msgs"][str(m["message_id"])] = {"sid": item["sid"], "label": item["label"]}
 
 
 def outbox():
@@ -208,22 +235,14 @@ def outbox():
         time.sleep(1)
 
 
-def type_into(target, text):
-    """Type a reply into a session's pane. Returns why it was not sent, or None."""
-    if not target or not target.get("pane"):
-        return "Not sent: that session is not in tmux."
-    if target["tmux"] != my_tmux():
-        return "Not sent: that session's tmux runs on another login node than the router."
-    screen = tmux("capture-pane", "-p", "-t", target["pane"])
-    if screen is None:
-        return "Not sent: that pane is gone."
-    # With a dialog open, the Enter at the end would pick one of its options.
-    if "Esc to cancel" in screen or re.search(r"❯ \d\.", screen):
-        return "Not sent: a dialog is open in that session. Answer it first."
-    tmux("send-keys", "-t", target["pane"], "-l", PREFIX + " ".join(text.splitlines()))
-    time.sleep(0.3)
-    tmux("send-keys", "-t", target["pane"], "Enter")
-    return None
+def away_sessions():
+    found = {}
+    for f in AWAY.glob("*"):
+        try:
+            found[f.name] = json.loads(f.read_text())["label"]
+        except (OSError, ValueError, KeyError):
+            pass
+    return found
 
 
 def handle(u):
@@ -246,30 +265,33 @@ def handle(u):
         return
     text = m.get("text", "")
     reply = lambda t: api("sendMessage", chat_id=CHAT, text=t, reply_to_message_id=m["message_id"])
+    away = away_sessions()
     if text.strip() == "/list":
-        reply("Sessions: " + ", ".join((tmux("list-sessions", "-F", "#S") or "none").split()))
+        reply("Away mode: " + ", ".join(sorted(away.values())) if away
+              else "No session is in away mode.")
         return
     if text.startswith("/to "):
         _, name, text = (text.split(None, 2) + [""])[:3]
-        panes = tmux("list-panes", "-s", "-t", f"={name}", "-F", "#{pane_id}")
-        target = {"tmux": my_tmux(), "pane": panes.split()[0], "label": name} if panes else None
+        sids = [sid for sid, label in away.items() if label == name]
+        if len(sids) != 1:
+            reply(f"No session called {name} is in away mode (/list shows them)." if not sids else
+                  f"Several sessions are called {name}: reply to one of their messages instead.")
+            return
+        sid = sids[0]
     elif m.get("reply_to_message"):
-        target = state["msgs"].get(str(m["reply_to_message"]["message_id"]))
+        sid = state["msgs"].get(str(m["reply_to_message"]["message_id"]), {}).get("sid")
     else:
         reply("Reply to a session's message to talk to it, or use /to <session> <text>. "
-              "/list shows the sessions.")
+              "/list shows the sessions in away mode.")
         return
     if not text.strip():
         return
-    problem = type_into(target, text)
-    if problem:
-        reply(problem)
-    else:
-        try:
-            api("setMessageReaction", chat_id=CHAT, message_id=m["message_id"],
-                reaction=[{"type": "emoji", "emoji": "👍"}])
-        except urllib.error.HTTPError:
-            reply(f"Sent to {target['label']}.")
+    if sid not in away:
+        reply("Not sent: that session is not in away mode, so nothing would read it.")
+        return
+    write_atomic(INBOX / sid / f"{time.time():.6f}.json",
+                 json.dumps({"text": text, "msg": m["message_id"]}))
+    react(m["message_id"], "👀")  # queued; 👍 once the session picks it up
 
 
 def router():
@@ -280,12 +302,19 @@ def router():
         sys.exit(f"Set TELEGRAM_CHAT_ID in {ENV} first (tg.py chat-id finds it).")
     if router_alive():
         sys.exit("A router is already running (or stopped less than a minute ago).")
-    for d in (OUT, ANSWERS, AWAY):
+    for d in (OUT, ANSWERS, AWAY, INBOX):
         d.mkdir(parents=True, exist_ok=True)
     if STATE.exists():
         state.update(json.loads(STATE.read_text()))
+    ALIVE.touch()
     threading.Thread(target=outbox, daemon=True).start()
-    log("router up")
+    where = socket.gethostname().split(".")[0]
+    job = os.environ.get("SLURM_JOB_ID")
+    log(f"router up on {where}" + (f", job {job}" if job else ""))
+    try:
+        api("sendMessage", chat_id=CHAT, text=f"Router up on {where}" + (f" (job {job})" if job else ""))
+    except OSError as e:
+        log(f"hello message: {e}")
     while True:
         try:
             updates = api("getUpdates", offset=state["offset"], timeout=50,
@@ -323,10 +352,12 @@ if __name__ == "__main__":
         router()
     elif cmd == "hook":
         hook()
+    elif cmd == "stop":
+        stop()
     elif cmd == "send" and args:
         send(" ".join(args))
-    elif cmd == "ooo" and len(args) == 2 and args[0] in ("on", "off"):
-        away_mode(*args)
+    elif cmd == "ooo" and args and args[0] in ("on", "off") and len(args) <= 2:
+        away_mode(args[0], args[1] if len(args) == 2 else os.environ.get("CLAUDE_CODE_SESSION_ID", ""))
     elif cmd == "chat-id":
         chat_id()
     else:

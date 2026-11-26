@@ -69,6 +69,17 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/skills/ooo/tg.py stop",
+            "timeout": 86400
+          }
+        ]
+      }
     ]
   },
   "modelSettings": {

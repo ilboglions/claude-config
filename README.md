@@ -144,15 +144,24 @@ also arrives on Telegram with Yes/No buttons, and Claude messages me there only 
 it is blocked or something is urgent. The terminal prompt stays open, and whichever
 answer comes first wins. `/ooo off` turns it off.
 
-To talk to a session, reply to one of its messages on Telegram: the router types the
-reply into that session's tmux pane. `/to <session> <text>` reaches a session that has
-not written yet, and `/list` shows the tmux sessions. Nothing is typed while a dialog
-is open in the pane, since the Enter would pick one of its options.
+To talk to a session, reply to one of its messages on Telegram. When the session
+finishes a turn, a Stop hook keeps it waiting for my reply and hands the reply to
+Claude; a reply sent while it works is picked up at the end of the turn (👀 when
+queued, 👍 when picked up). `/to <session> <text>` reaches a session that has not
+written yet, and `/list` shows the sessions in away mode. Messages are labelled with
+the tmux session's name, which jsh passes to the job as `JSH_SESSION`, or else with
+the folder's name.
 
-One router, `skills/ooo/tg.py router`, is the only process talking to the bot. It
-runs on the login node that holds the tmux server. The hook and `tg.py send` only drop
-files in `~/.claude/tg`, so sessions on compute nodes need no internet access, only
-the shared `$HOME`. `settings.json` carries the hook and an allow rule for `tg.py`.
+Back at the terminal, whatever I type queues behind the waiting hook: `/ooo off`
+followed by Esc sends it and ends away mode.
+
+One router, `skills/ooo/tg.py router`, is the only process talking to the bot. jsh
+(from my mymila repo) starts it in the anchor job's own
+script, so it starts with the job, comes back after a preemption, and does not depend
+on a login node. Its log is `~/.claude/tg/router.log`, and it says "Router up" on
+Telegram whenever it starts. The hooks and `tg.py send` only read and drop files in
+`~/.claude/tg`, so sessions need no internet access, only the shared `$HOME`.
+`settings.json` carries both hooks and an allow rule for `tg.py`.
 
 Setup, once, on the cluster:
 
@@ -163,13 +172,9 @@ Setup, once, on the cluster:
    chmod 600 ~/.config/telegram.env   # then fill in the token
    ~/.claude/skills/ooo/tg.py chat-id # message the bot, copy the id into the file
    ```
-3. Start the router in its own tmux session on the login node (an explicit command,
-   so jsh does not move it onto the job):
-   ```bash
-   mkdir -p ~/.claude/tg
-   tmux new -d -s tg '~/.claude/skills/ooo/tg.py router 2>> ~/.claude/tg/router.log'
-   ```
+3. Install mymila's cluster side (`./install.sh --cluster`), so the next anchor job
+   starts the router.
 
 The router acts only on messages and taps from `TELEGRAM_CHAT_ID`. Anything it accepts
-is typed into a session, so keep the bot out of groups and never share its token.
-
+reaches a session as an instruction, so keep the bot out of groups and never share its
+token.
