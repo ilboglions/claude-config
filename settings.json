@@ -92,6 +92,17 @@
           }
         ]
       }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/skills/ooo/tg.py session-end",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   },
   "modelSettings": {

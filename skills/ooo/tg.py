@@ -10,6 +10,7 @@
                         send him a file: images as photos, anything else as a document
   tg.py ooo on|off      turn away mode on or off for this session
   tg.py name-check      SessionStart hook: ask once for the project's Telegram name
+  tg.py session-end     SessionEnd hook: a session that ends leaves away mode
   tg.py chat-id         print the id of whoever messages the bot next (setup)
 
 Everything except the router only reads and drops files in ~/.claude/tg, so it
@@ -72,6 +73,27 @@ def origin(sid, cwd=None):
     short = os.environ.get("JSH_SESSION") or os.path.basename(cwd.rstrip("/")) or cwd
     # The project's own name, from env.TG_NAME in its .claude/settings.local.json.
     return {"sid": sid, "label": os.environ.get("TG_NAME") or short, "short": short}
+
+
+def session_end():
+    """SessionEnd hook (also on a closed pane or a cancelled job): leave away mode, and say so."""
+    req = json.load(sys.stdin)
+    sid = req.get("session_id", "")
+    flag = AWAY / sid
+    if not sid or not flag.exists():
+        return
+    try:
+        info = json.loads(flag.read_text())
+    except ValueError:
+        info = origin(sid, req.get("cwd"))
+    flag.unlink(missing_ok=True)
+    (WAITING / sid).unlink(missing_ok=True)
+    unread = list((INBOX / sid).glob("*.json"))
+    for f in unread:
+        f.unlink(missing_ok=True)
+    n = len(unread)
+    note = f" {n} message{'s' if n > 1 else ''} from you {'were' if n > 1 else 'was'} not read." if n else ""
+    drop({"kind": "msg", "text": "session ended, away mode off." + note, **info})
 
 
 def name_check():
@@ -594,6 +616,8 @@ if __name__ == "__main__":
         away_mode(args[0], args[1] if len(args) == 2 else os.environ.get("CLAUDE_CODE_SESSION_ID", ""))
     elif cmd == "name-check":
         name_check()
+    elif cmd == "session-end":
+        session_end()
     elif cmd == "chat-id":
         chat_id()
     else:
