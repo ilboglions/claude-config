@@ -25,6 +25,7 @@ import shutil
 import signal
 import socket
 import ssl
+import subprocess
 import sys
 import threading
 import time
@@ -76,7 +77,7 @@ def origin(sid, cwd=None):
 
 
 def session_end():
-    """SessionEnd hook (also on a closed pane or a cancelled job): leave away mode, and say so."""
+    """SessionEnd hook: a session that exits leaves away mode, and says so."""
     req = json.load(sys.stdin)
     sid = req.get("session_id", "")
     flag = AWAY / sid
@@ -86,7 +87,12 @@ def session_end():
         info = json.loads(flag.read_text())
     except ValueError:
         info = origin(sid, req.get("cwd"))
-    flag.unlink(missing_ok=True)
+    end_session(sid, info)
+
+
+def end_session(sid, info):
+    """Take a session out of away mode for good, and tell Matteo (the hook and the router)."""
+    (AWAY / sid).unlink(missing_ok=True)
     (WAITING / sid).unlink(missing_ok=True)
     unread = list((INBOX / sid).glob("*.json"))
     for f in unread:
@@ -226,7 +232,11 @@ def away_mode(state, sid):
         print("away mode off")
         return
     info = origin(sid)
-    write_atomic(flag, json.dumps(info))
+    # Where the session runs, so the router can tell when it died without its
+    # SessionEnd hook (a closed pane on the cluster, a job that ended).
+    where = {"job": os.environ.get("SLURM_JOB_ID", ""), "host": socket.gethostname(),
+             "pid": int(os.environ.get("CLAUDE_PID") or 0)}
+    write_atomic(flag, json.dumps({**info, **where}))
     drop({"kind": "msg", "text": "away mode on. Reply to this message to talk to this session.",
           **info})
     print("away mode on")
@@ -410,9 +420,51 @@ def deliver(item):
                                            "short": item.get("short", item["label"])}
 
 
+def alive(pid):
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:  # another user's process holds that id now: can't tell
+        return True
+
+
+suspects = set()  # sessions that looked dead at the last sweep
+
+
+def sweep():
+    """Sessions that died without their SessionEnd hook leave away mode: their job is
+    gone, or their Claude process on this node is. Two sweeps in a row must agree."""
+    try:
+        jobs = set(subprocess.run(["squeue", "-u", os.environ.get("USER", ""), "-h", "-o", "%i"],
+                                  capture_output=True, text=True, timeout=30, check=True).stdout.split())
+    except (OSError, subprocess.SubprocessError):
+        jobs = None  # can't ask Slurm right now: judge by process only
+    here, dead = socket.gethostname(), set()
+    for f in AWAY.glob("*"):
+        try:
+            info = json.loads(f.read_text())
+        except (OSError, ValueError):
+            continue
+        job, pid = info.get("job"), info.get("pid")
+        if (jobs is not None and job and job not in jobs) or (
+                info.get("host") == here and pid and not alive(pid)):
+            dead.add(f.name)
+            if f.name in suspects:
+                log(f"{info.get('label')} died without its SessionEnd hook; leaving away mode")
+                end_session(f.name, info)
+    suspects.clear()
+    suspects.update(dead)
+
+
 def outbox():
+    last_sweep = 0
     while True:
         ALIVE.touch()
+        if time.time() - last_sweep > 60:
+            last_sweep = time.time()
+            sweep()
         if time.time() < pause_until:  # Telegram asked to wait (429): keep everything queued
             time.sleep(1)
             continue
