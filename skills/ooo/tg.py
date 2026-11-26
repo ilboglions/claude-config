@@ -303,15 +303,21 @@ def fmt(text):
     return "".join(out) + html.escape(text[pos:], quote=False)
 
 
-def shown(i):  # the project's name, then the session's when it differs: "🟧 LACUNA · lacuna2"
+def suffix(i, away):
+    """" · lacuna2": the tmux session's name, only while another session in away mode
+    has the same project name, so the two can be told apart."""
     short = i.get("short") or i["label"]
-    return i["label"] + (f" · {short}" if short != i["label"] else "")
+    twin = any(sid != i.get("sid") and o["label"] == i["label"] for sid, o in away.items())
+    return f" · {short}" if twin and short != i["label"] else ""
 
 
-def head(i):  # the header line: the project's name in bold, the session's plain
-    short = i.get("short") or i["label"]
-    return f"<b>{html.escape(i['label'], quote=False)}</b>" + (
-        f" · {html.escape(short, quote=False)}" if short != i["label"] else "")
+def shown(i, away=None):  # the name on buttons and prompts
+    return i["label"] + suffix(i, away_sessions() if away is None else away)
+
+
+def head(i):  # the header line: the project's name in bold, the session's plain if needed
+    return (f"<b>{html.escape(i['label'], quote=False)}</b>"
+            + html.escape(suffix(i, away_sessions()), quote=False))
 
 
 def send_html(method, key, text, **params):
@@ -432,8 +438,9 @@ def pick_session(reply_to=None):
     if not away:
         api("sendMessage", chat_id=CHAT, text="No session is in away mode.")
         return
-    rows = [[{"text": shown(i), "callback_data": f"to:{sid}"}]
-            for sid, i in sorted(away.items(), key=lambda kv: shown(kv[1]).lower())]
+    names = {sid: shown({"sid": sid, **i}, away) for sid, i in away.items()}
+    rows = [[{"text": names[sid], "callback_data": f"to:{sid}"}]
+            for sid in sorted(names, key=lambda s: names[s].lower())]
     api("sendMessage", chat_id=CHAT, text="Which session? Tap one, then write your message.",
         reply_markup={"inline_keyboard": rows},
         **({"reply_to_message_id": reply_to} if reply_to else {}))
@@ -442,13 +449,15 @@ def pick_session(reply_to=None):
 def prompt_for(sid):
     # A reply box addressed to the session. Recorded as one of its messages, so the
     # answer goes through the usual reply routing.
-    i = away_sessions().get(sid)
-    if not i:
+    away = away_sessions()
+    if sid not in away:
         api("sendMessage", chat_id=CHAT, text="That session is no longer in away mode.")
         return
-    m = api("sendMessage", chat_id=CHAT, text=f"✍️ Message for {shown(i)}:",
-            reply_markup={"force_reply": True, "input_field_placeholder": f"to {shown(i)}"[:64]})
-    state["msgs"][str(m["message_id"])] = {"sid": sid, **i}
+    i = {"sid": sid, **away[sid]}
+    name = shown(i, away)
+    m = api("sendMessage", chat_id=CHAT, text=f"✍️ Message for {name}:",
+            reply_markup={"force_reply": True, "input_field_placeholder": f"to {name}"[:64]})
+    state["msgs"][str(m["message_id"])] = i
 
 
 def handle(u):

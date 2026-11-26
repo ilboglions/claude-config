@@ -154,9 +154,9 @@ away mode, and tapping one opens a reply addressed to it, so only the message is
 typed. `/to <name> <text>` also works, by project or session name, case and emojis
 ignored.
 
-Each message starts with the session's name in bold, followed by the tmux session's
-name when the two differ (`🟧 LACUNA · lacuna2`), so two sessions in one project stay
-apart. The name is the project's own when its `.claude/settings.local.json` sets one:
+Each message starts with the session's name in bold. While two sessions in away mode
+share a project name, the tmux session's name follows it (`🟧 LACUNA · lacuna2`), so
+they stay apart. The name is the project's own when its `.claude/settings.local.json` sets one:
 
 ```json
 { "env": { "TG_NAME": "🟦 Multi-agent detection" } }
