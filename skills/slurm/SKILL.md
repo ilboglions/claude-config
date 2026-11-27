@@ -270,26 +270,38 @@ Alliance clusters are defined in `~/.ssh/config` **on both the Mac and Mila** (t
 file covers `tamia fir killarney vulcan narval nibi rorqual` via `%h.alliancecan.ca`). Both use
 `ControlMaster auto` so Duo 2FA fires only when no master socket exists.
 
-**The agreed workflow: the user opens the session, the agent reuses it.**
+**The agreed workflow: reuse a live master; if there is none, on Mila the agent opens it itself.**
 
 1. Check for a live master before anything else:
    ```bash
    ssh -O check tamia     # "Master running (pid=...)" => commands run unattended
    ```
-2. If there is none, **ask the user to run `ssh tamia` themselves** and approve the Duo push.
-   Do not try to drive the prompt: tool calls have no tty, so ssh cannot prompt at all and
-   fails at `Permission denied (publickey,keyboard-interactive)` without ever sending a push.
-3. Once the master is up, everything (`sbatch`, `squeue`, `rsync`) runs unattended for
-   `ControlPersist` (8h). `ssh -O exit tamia` clears a stale socket.
+2. If there is none:
+   - **On Mila, the agent opens the connection itself.** The shells on the anchor job answer
+     DRAC's Duo menu with a push to the user's phone (mymila's helper). Say so in one line first
+     ("approve the Duo push for tamia"). While away mode (`/ooo`) is on, send that line with
+     `~/.claude/skills/ooo/tg.py send` *before* the ssh, so a push never reaches the phone
+     unannounced. Then run the command (`ssh tamia '...'`): it waits up to about a minute for
+     the tap.
+   - `Permission denied (keyboard-interactive)` after that wait means the push was denied or
+     missed. Ask before trying again: each attempt is another push (the helper pushes once per
+     ssh, never three times). If it fails at once, with no push, the shell predates the helper:
+     ask the user to run `ssh tamia` on that node.
+   - **On the Mac nothing changes:** ask the user to run `ssh tamia` themselves and approve the
+     push. Tool calls have no tty, so ssh cannot prompt at all and fails at
+     `Permission denied (publickey,keyboard-interactive)` without ever sending a push.
+3. Once the master is up, everything (`sbatch`, `squeue`, `rsync`) runs unattended while it
+   lives (`ControlPersist`: 24 h on Mila, until closed on the Mac). `ssh -O exit tamia` clears
+   a stale socket.
 
 **The socket is node-local — this is the one way the setup fails confusingly.** A unix domain
 socket only works on the machine whose process is listening. Mila's `$HOME` is shared NFS, so a
 socket created on login-1 is *visible* from every compute node but dead there. Therefore:
 
-| The agent runs on | User must open `ssh tamia` on |
+| The agent runs on | The master must be opened on |
 |---|---|
-| the Mac | the Mac |
-| a Mila compute node | **that same compute node** |
+| the Mac | the Mac, by the user |
+| a Mila compute node | **that same compute node** (the agent does it, step 2) |
 
 This is why `ControlPath` carries `%l` (local hostname) on the Mila side — without it, sockets
 from different nodes collide on one path.
