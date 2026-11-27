@@ -28,11 +28,12 @@ prefix_rule(pattern = ["rg"])
 prefix_rule(pattern = ["python", "--version"])
 prefix_rule(pattern = ["pip", ["list", "show"]])
 
-# prompt: job submission and cancellation ask every single time
+# prompt: job submission and cancellation, and git push, ask every single time
 prefix_rule(pattern = ["sbatch"], decision = "prompt")
 prefix_rule(pattern = ["srun"], decision = "prompt")
 prefix_rule(pattern = ["salloc"], decision = "prompt")
 prefix_rule(pattern = ["scancel"], decision = "prompt")
+prefix_rule(pattern = ["git", "push"], decision = "prompt")
 
 # forbidden
 prefix_rule(

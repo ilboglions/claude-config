@@ -40,6 +40,8 @@ In Codex, invoke a skill as `$name` instead of `/name`.
   every single time. This enforces the "explicit sign-off before every job
   submission" rule mechanically, so an earlier approval can never carry over to a
   modified resubmission.
+  `git push` always prompts too, so a push in away mode becomes a Yes/No on the
+  phone that the harness checks, not an agent acting on a chat reply.
 - **`permissions.deny`** — `rm -rf` is blocked outright.
 - **`attribution`** — empty strings drop the `Co-Authored-By: Claude` trailer from
   commits and the "Generated with Claude Code" line from PR descriptions, so

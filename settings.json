@@ -45,6 +45,7 @@
       "Bash(srun *)",
       "Bash(salloc *)",
       "Bash(scancel *)",
+      "Bash(git push *)",
       "mcp__zotero__zotero_delete_item",
       "mcp__zotero__zotero_delete_collection",
       "mcp__zotero__zotero_delete_annotation",
