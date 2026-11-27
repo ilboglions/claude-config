@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Away mode: talk to Claude Code sessions from Telegram (see SKILL.md).
 
-  tg.py router          the only process talking to the bot; jsh (mymila) starts
-                        it with the anchor job
+  tg.py router          the only process talking to the bot (jsh starts it with the
+                        anchor job); with a hub configured, it mirrors to the hub
+                        instead and talks to Telegram only while the hub is away
+  tg.py mirror          keep this machine's mailboxes in sync with a hub
   tg.py hook            PermissionRequest hook: while /ooo is on, also ask on Telegram
-  tg.py stop            Stop hook: while /ooo is on, wait for Matteo's reply
+  tg.py stop            Stop hook: wait for Matteo's reply in the background
   tg.py interrupt       PostToolUse hook: a reply is waiting, end the turn now
   tg.py wake            PostToolUse hook: then hand the reply over, once the turn has ended
   tg.py busy            UserPromptSubmit hook: a turn is starting
@@ -12,12 +14,13 @@
   tg.py send --file PATH [TEXT]
                         send him a file: images as photos, anything else as a document
   tg.py ooo on|off      turn away mode on or off for this session
-  tg.py name-check      SessionStart hook: ask once for the project's Telegram name
+  tg.py session-start   SessionStart hook: register the session; ask once for a name
   tg.py session-end     SessionEnd hook: a session that ends leaves away mode
   tg.py chat-id         print the id of whoever messages the bot next (setup)
 
-Everything except the router only reads and drops files in ~/.claude/tg, so it
-works on any node that shares $HOME with the router, even without internet access.
+Sessions only read and drop files in their mailbox (~/.claude/tg, or ~/.claude/tg-<bot>
+for another bot), so they work on any node that shares $HOME with the router or the
+mirror, even without internet access.
 """
 import html
 import json
@@ -37,23 +40,55 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-BOX = Path.home() / ".claude" / "tg"
-OUT, ANSWERS, AWAY, INBOX = BOX / "out", BOX / "answers", BOX / "away", BOX / "inbox"
-WAITING = BOX / "waiting"  # per session: the token of its newest stop-hook waiter
-TURN = BOX / "turn"  # per session: "busy" or "idle"
-FILES = BOX / "files"  # copies of files to send, where the router can read them
-STATE, ALIVE = BOX / "state.json", BOX / "router.alive"
+ENV = Path.home() / ".config" / "telegram.env"
+
+
+def config():
+    conf = {}
+    for line in ENV.read_text().splitlines():
+        key, sep, val = line.partition("=")
+        if sep and not key.lstrip().startswith("#"):
+            conf[key.strip()] = val.strip().strip("'\"")
+    return conf
+
+
+try:
+    CONF = config()  # this machine's private settings
+except OSError:
+    CONF = {}
+
+
+class Box:
+    """One bot's mailbox on this machine."""
+
+    def __init__(self, bot):
+        self.bot = bot
+        self.dir = Path.home() / ".claude" / ("tg" if bot == "work" else f"tg-{bot}")
+        self.out, self.answers = self.dir / "out", self.dir / "answers"
+        self.away, self.inbox = self.dir / "away", self.dir / "inbox"
+        self.sessions = self.dir / "sessions"  # every live session, away or not
+        self.waiting = self.dir / "waiting"    # per session: its newest stop-hook waiter
+        self.turn = self.dir / "turn"          # per session: "busy" or "idle"
+        self.files = self.dir / "files"        # copies of files to send
+        self.state, self.alive = self.dir / "state.json", self.dir / "router.alive"
+
+
+# The session's own mailbox: its project's TG_BOT, else this machine's default.
+BOT = os.environ.get("TG_BOT") or CONF.get("TG_DEFAULT_BOT") or "work"
+B = Box(BOT)
+BOX, OUT, ANSWERS, AWAY, INBOX = B.dir, B.out, B.answers, B.away, B.inbox
+SESSIONS, WAITING, TURN, FILES, STATE, ALIVE = B.sessions, B.waiting, B.turn, B.files, B.state, B.alive
 PHOTO_TYPES = {".png", ".jpg", ".jpeg", ".webp"}
 MAX_PHOTO, MAX_FILE = 10 << 20, 50 << 20  # what Telegram accepts from bots
-ENV = Path.home() / ".config" / "telegram.env"
+SAFE_ID = re.compile(r"^[0-9A-Za-z_-]{1,64}$")  # session and request ids, before they become paths
 TOKEN, CHAT = "", 0
 
 
 # ---- used by the sessions (hooks, send, ooo) --------------------------------
 
-def router_alive():
+def router_alive(b=B):
     try:
-        return time.time() - ALIVE.stat().st_mtime < 60
+        return time.time() - b.alive.stat().st_mtime < 60
     except FileNotFoundError:
         return False
 
@@ -66,8 +101,8 @@ def write_atomic(path, text):
     tmp.rename(path)
 
 
-def drop(item):
-    path = OUT / f"{time.time():.6f}-{secrets.token_hex(3)}.json"
+def drop(item, b=B):
+    path = b.out / f"{time.time():.6f}-{secrets.token_hex(3)}.json"
     write_atomic(path, json.dumps(item))
     return path
 
@@ -80,37 +115,31 @@ def origin(sid, cwd=None):
     return {"sid": sid, "label": os.environ.get("TG_NAME") or short, "short": short}
 
 
-def session_end():
-    """SessionEnd hook: a session that exits leaves away mode, and says so."""
+def claude_pid():
+    if os.environ.get("CLAUDE_PID"):
+        return int(os.environ["CLAUDE_PID"])
+    try:  # a hook runs under a shell that Claude Code started
+        out = subprocess.run(["ps", "-o", "ppid=", "-p", str(os.getppid())],
+                             capture_output=True, text=True, timeout=5).stdout
+        return int(out.strip() or 0)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return 0
+
+
+def where():
+    """Where the session runs, so the router or mirror can tell when it died without
+    its SessionEnd hook (a closed pane on the cluster, a job that ended)."""
+    return {"job": os.environ.get("SLURM_JOB_ID", ""), "host": socket.gethostname(),
+            "pid": claude_pid()}
+
+
+def session_start():
+    """SessionStart hook: register the session, and in a git project with no TG_NAME
+    yet, have Claude ask for one."""
     req = json.load(sys.stdin)
-    sid = req.get("session_id", "")
-    flag = AWAY / sid
-    if not sid or not flag.exists():
-        return
-    try:
-        info = json.loads(flag.read_text())
-    except ValueError:
-        info = origin(sid, req.get("cwd"))
-    end_session(sid, info)
-
-
-def end_session(sid, info):
-    """Take a session out of away mode for good, and tell Matteo (the hook and the router)."""
-    (AWAY / sid).unlink(missing_ok=True)
-    (WAITING / sid).unlink(missing_ok=True)
-    (TURN / sid).unlink(missing_ok=True)
-    unread = list((INBOX / sid).glob("*.json"))
-    for f in unread:
-        f.unlink(missing_ok=True)
-    n = len(unread)
-    note = f" {n} message{'s' if n > 1 else ''} from you {'were' if n > 1 else 'was'} not read." if n else ""
-    drop({"kind": "msg", "text": "session ended, away mode off." + note, **info})
-
-
-def name_check():
-    """SessionStart hook: in a git project with no TG_NAME yet, have Claude ask for one."""
-    req = json.load(sys.stdin)
-    cwd = Path(req.get("cwd") or os.getcwd())
+    sid, cwd = req.get("session_id", ""), Path(req.get("cwd") or os.getcwd())
+    if SAFE_ID.match(sid):
+        write_atomic(SESSIONS / f"{sid}.json", json.dumps({**origin(sid, str(cwd)), **where()}))
     if "TG_NAME" in os.environ or not ENV.exists():  # answered already, or no Telegram here
         return
     if not any((d / ".git").exists() for d in (cwd, *cwd.parents)):
@@ -122,6 +151,37 @@ def name_check():
         f"in {cwd}/.claude/settings.local.json, keeping whatever else that file holds. If he "
         "says no, write an empty string: it means don't ask again, and Telegram keeps showing "
         "the session's name."}}))
+
+
+def session_end():
+    """SessionEnd hook: a session that exits is unregistered, and leaves away mode."""
+    req = json.load(sys.stdin)
+    sid = req.get("session_id", "")
+    if not SAFE_ID.match(sid):
+        return
+    (SESSIONS / f"{sid}.json").unlink(missing_ok=True)
+    flag = AWAY / sid
+    if not flag.exists():
+        return
+    try:
+        info = json.loads(flag.read_text())
+    except ValueError:
+        info = origin(sid, req.get("cwd"))
+    end_session(sid, info)
+
+
+def end_session(sid, info, b=B):
+    """Take a session out of away mode for good, and tell Matteo (the hook and the router)."""
+    (b.away / sid).unlink(missing_ok=True)
+    (b.waiting / sid).unlink(missing_ok=True)
+    (b.turn / sid).unlink(missing_ok=True)
+    unread = list((b.inbox / sid).glob("*.json"))
+    for f in unread:
+        f.unlink(missing_ok=True)
+    n = len(unread)
+    note = f" {n} message{'s' if n > 1 else ''} from you {'were' if n > 1 else 'was'} not read." if n else ""
+    drop({"kind": "msg", "text": "session ended, away mode off." + note,
+          **{k: info.get(k) for k in ("sid", "label", "short")}}, b)
 
 
 def hook():
@@ -181,16 +241,22 @@ def idle_for(sid):  # seconds since the session went idle; -1 while busy or unkn
 
 
 def hand_over(sid, idle=2):
-    """If the session has been idle for a moment and replies are waiting, wake it with
-    them (exit code 2 of an asyncRewake hook). Returns if there is nothing to hand over."""
+    """If the session has been idle for a moment and something is waiting for it, wake it
+    (exit code 2 of an asyncRewake hook). Replies only reach a session in away mode;
+    notices (away mode turned on or off from Telegram) reach any session."""
     if idle_for(sid) < idle:
         return False
-    texts = claim_replies(sid)
-    if not texts:
+    got = claim_replies(sid, notices_only=not (AWAY / sid).exists())
+    if not got:
         return False
     mark(sid, "busy")
-    print("Matteo replied on Telegram:\n\n" + "\n\n".join(texts)
-          + '\n\nAnswer him with ~/.claude/skills/ooo/tg.py send "..."', file=sys.stderr)
+    notices = [t for kind, t in got if kind == "notice"]
+    replies = [t for kind, t in got if kind != "notice"]
+    text = "\n\n".join(notices)
+    if replies:
+        text += ("\n\n" if text else "") + "Matteo replied on Telegram:\n\n" + "\n\n".join(replies) \
+                + '\n\nAnswer him with ~/.claude/skills/ooo/tg.py send "..."'
+    print(text, file=sys.stderr)
     sys.exit(2)
 
 
@@ -198,7 +264,10 @@ def stop():
     req = json.load(sys.stdin)
     sid = req.get("session_id", "none")
     away, mark_file = AWAY / sid, WAITING / sid
-    if not away.exists():
+    # A session in away mode always waits; with a hub, any other registered session
+    # waits too while the mirror runs, so away mode can be turned on from Telegram.
+    if not away.exists() and not (CONF.get("TG_HUB_URL") and (SESSIONS / f"{sid}.json").exists()
+                                  and router_alive()):
         return
     # This runs in the background (asyncRewake in settings.json): the session goes
     # idle as usual, and exit code 2 wakes it with what this prints on stderr.
@@ -207,25 +276,31 @@ def stop():
     me = secrets.token_hex(4)
     write_atomic(mark_file, me)
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
-    while away.exists() and read(mark_file) == me:
+    while read(mark_file) == me and (away.exists() or (SESSIONS / f"{sid}.json").exists()):
         hand_over(sid)
-        time.sleep(1)
+        time.sleep(1 if away.exists() else 2)
 
 
-def claim_replies(sid):
-    """Take this session's waiting replies, each one exactly once, and mark them read."""
-    texts, me = [], secrets.token_hex(4)
+def claim_replies(sid, notices_only=False):
+    """Take what waits for this session, each item exactly once: [(kind, text)]."""
+    got, me = [], secrets.token_hex(4)
     for f in sorted((INBOX / sid).glob("*.json")):
+        try:
+            if notices_only and json.loads(f.read_text()).get("kind") != "notice":
+                continue
+        except (OSError, ValueError):
+            continue
         claimed = f.with_suffix(f".{me}")
         try:
-            f.rename(claimed)  # atomic: a reply goes to one reader only
+            f.rename(claimed)  # atomic: an item goes to one reader only
         except FileNotFoundError:
             continue
         item = json.loads(claimed.read_text())
         claimed.unlink()
-        texts.append(item["text"])
-        drop({"kind": "delivered", "msg": item["msg"]})
-    return texts
+        got.append((item.get("kind", "reply"), item["text"]))
+        if item.get("msg"):
+            drop({"kind": "delivered", "msg": item["msg"]})
+    return got
 
 
 # A reply that comes while Claude works must not wait for the turn to end. After each
@@ -245,7 +320,7 @@ def wake():
     """PostToolUse hook, asyncRewake: hand the reply over once the turn has ended."""
     sid = json.load(sys.stdin).get("session_id", "none")
     for _ in range(60):
-        if not (AWAY / sid).exists():
+        if not (AWAY / sid).exists() and not (SESSIONS / f"{sid}.json").exists():
             return
         hand_over(sid)
         time.sleep(0.5)
@@ -277,7 +352,7 @@ def send(text, file=None):
         shutil.copyfile(src, copy)
         item.update(kind="file", path=str(copy), name=src.name)
     path = drop(item)
-    for _ in range(30 if file else 10):  # the router deletes it once Telegram has it
+    for _ in range(30 if file else 10):  # the router or mirror deletes it once it's sent on
         if not path.exists():
             print("Sent to Telegram.")
             return
@@ -297,11 +372,7 @@ def away_mode(state, sid):
         print("away mode off")
         return
     info = origin(sid)
-    # Where the session runs, so the router can tell when it died without its
-    # SessionEnd hook (a closed pane on the cluster, a job that ended).
-    where = {"job": os.environ.get("SLURM_JOB_ID", ""), "host": socket.gethostname(),
-             "pid": int(os.environ.get("CLAUDE_PID") or 0)}
-    write_atomic(flag, json.dumps({**info, **where}))
+    write_atomic(flag, json.dumps({**info, **where()}))
     drop({"kind": "msg", "text": "away mode on. Reply to this message to talk to this session.",
           **info})
     print("away mode on")
@@ -316,15 +387,6 @@ state = {"offset": 0, "msgs": {}, "reqs": {}}  # msgs: message id -> session; re
 
 def log(text):
     print(time.strftime("%Y-%m-%d %H:%M:%S"), text, file=sys.stderr, flush=True)
-
-
-def config():
-    conf = {}
-    for line in ENV.read_text().splitlines():
-        key, sep, val = line.partition("=")
-        if sep and not key.lstrip().startswith("#"):
-            conf[key.strip()] = val.strip().strip("'\"")
-    return conf
 
 
 # Mila's python/3.10 module ships a CA bundle that cannot verify Telegram's
@@ -359,9 +421,10 @@ def api(method, files=None, **params):
         headers["Content-Type"] = f"multipart/form-data; boundary={b}"
     else:
         body = urllib.parse.urlencode(fields).encode()
-    req = urllib.request.Request(f"https://api.telegram.org/bot{TOKEN}/{method}", body, headers)
+    base = CONF.get("TELEGRAM_API_URL", "https://api.telegram.org/bot")
+    req = urllib.request.Request(f"{base}{TOKEN}/{method}", body, headers)
     try:
-        with urllib.request.urlopen(req, timeout=70, context=TLS) as r:
+        with urllib.request.urlopen(req, timeout=70, context=TLS if base.startswith("https") else None) as r:
             return json.load(r)["result"]
     except urllib.error.HTTPError as e:
         if e.code != 429:
@@ -498,34 +561,42 @@ def alive(pid):
 suspects = set()  # sessions that looked dead at the last sweep
 
 
-def sweep():
-    """Sessions that died without their SessionEnd hook leave away mode: their job is
-    gone, or their Claude process on this node is. Two sweeps in a row must agree."""
+def sweep(boxes=(B,)):
+    """Sessions that died without their SessionEnd hook are unregistered and leave away
+    mode: their job is gone, or their Claude process on this node is. Two sweeps in a
+    row must agree."""
     try:
         jobs = set(subprocess.run(["squeue", "-u", os.environ.get("USER", ""), "-h", "-o", "%i"],
                                   capture_output=True, text=True, timeout=30, check=True).stdout.split())
     except (OSError, subprocess.SubprocessError):
-        jobs = None  # can't ask Slurm right now: judge by process only
+        jobs = None  # no Slurm here, or can't ask it right now: judge by process only
     here, dead = socket.gethostname(), set()
-    for f in AWAY.glob("*"):
-        try:
-            info = json.loads(f.read_text())
-        except (OSError, ValueError):
-            continue
-        job, pid = info.get("job"), info.get("pid")
-        if (jobs is not None and job and job not in jobs) or (
-                info.get("host") == here and pid and not alive(pid)):
-            dead.add(f.name)
-            if f.name in suspects:
+    for b in boxes:
+        for f in [*b.away.glob("*"), *b.sessions.glob("*.json")]:
+            try:
+                info = json.loads(f.read_text())
+            except (OSError, ValueError):
+                continue
+            job, pid = info.get("job"), info.get("pid")
+            if not ((jobs is not None and job and job not in jobs) or (
+                    info.get("host") == here and pid and not alive(pid))):
+                continue
+            key = str(f)
+            dead.add(key)
+            if key not in suspects:
+                continue
+            if f.parent == b.sessions:
+                f.unlink(missing_ok=True)
+            else:
                 log(f"{info.get('label')} died without its SessionEnd hook; leaving away mode")
-                end_session(f.name, info)
+                end_session(f.name, info, b)
     suspects.clear()
     suspects.update(dead)
 
 
-def outbox():
+def outbox(stop=None):
     last_sweep = 0
-    while True:
+    while not (stop and stop.is_set()):
         ALIVE.touch()
         if time.time() - last_sweep > 60:
             last_sweep = time.time()
@@ -606,7 +677,7 @@ def handle(u):
             return
         if q.get("data", "").startswith("to:"):  # a session picked from the list
             api("answerCallbackQuery", callback_query_id=q["id"])
-            prompt_for(q["data"][3:])
+            prompt_for(q["data"][3:].split("|")[-1])
             return
         verdict, _, rid = q.get("data", "").partition(":")
         req = state["reqs"].pop(rid, None) if verdict in ("allow", "deny") else None
@@ -662,34 +733,33 @@ def handle(u):
     react(m["message_id"], "👀")  # queued; 👍 once the session picks it up
 
 
-def router():
+def run_router(stop=None, poll_timeout=50, hello="Router up"):
+    """Talk to Telegram for the work bot's mailbox; with `stop`, until it is set."""
     global TOKEN, CHAT
-    conf = config()
-    TOKEN, CHAT = conf["TELEGRAM_BOT_TOKEN"], int(conf.get("TELEGRAM_CHAT_ID") or 0)
+    TOKEN, CHAT = CONF["TELEGRAM_BOT_TOKEN"], int(CONF.get("TELEGRAM_CHAT_ID") or 0)
     if not CHAT:
         sys.exit(f"Set TELEGRAM_CHAT_ID in {ENV} first (tg.py chat-id finds it).")
-    if router_alive():
-        sys.exit("A router is already running (or stopped less than a minute ago).")
     for d in (OUT, ANSWERS, AWAY, INBOX):
         d.mkdir(parents=True, exist_ok=True)
     if STATE.exists():
         state.update(json.loads(STATE.read_text()))
     ALIVE.touch()
-    threading.Thread(target=outbox, daemon=True).start()
-    where = socket.gethostname().split(".")[0]
+    feeder = threading.Thread(target=outbox, args=(stop,), daemon=True)
+    feeder.start()
+    where_ = socket.gethostname().split(".")[0]
     job = os.environ.get("SLURM_JOB_ID")
-    log(f"router up on {where}" + (f", job {job}" if job else ""))
+    log(f"{hello.lower()} on {where_}" + (f", job {job}" if job else ""))
     try:
         # Telegram suggests only the commands a bot registers.
         api("setMyCommands", commands=[
             {"command": "to", "description": "Pick a session and message it"},
             {"command": "list", "description": "Sessions in away mode"}])
-        api("sendMessage", chat_id=CHAT, text=f"Router up on {where}" + (f" (job {job})" if job else ""))
+        api("sendMessage", chat_id=CHAT, text=f"{hello} on {where_}" + (f" (job {job})" if job else ""))
     except OSError as e:
         log(f"startup messages: {e}")
-    while True:
+    while not (stop and stop.is_set()):
         try:
-            updates = api("getUpdates", offset=state["offset"], timeout=50,
+            updates = api("getUpdates", offset=state["offset"], timeout=poll_timeout,
                           allowed_updates=["message", "callback_query"])
         except OSError as e:
             log(f"getUpdates: {e}")
@@ -703,6 +773,234 @@ def router():
                 except OSError as e:
                     log(f"update {u['update_id']}: {e}")
                 save()
+    feeder.join(timeout=5)
+
+
+def router():
+    if CONF.get("TG_HUB_URL"):
+        mirror()
+        return
+    if router_alive():
+        sys.exit("A router is already running (or stopped less than a minute ago).")
+    run_router()
+
+
+# ---- mirror: this machine's mailboxes, kept in sync with a hub ----------------
+
+HUB_TLS = None
+HUB_GRACE = float(CONF.get("TG_HUB_GRACE") or 150)  # seconds without the hub before falling back
+
+
+def hub(path, payload=None, raw=None, timeout=45):
+    url = CONF["TG_HUB_URL"].rstrip("/") + path
+    data = raw if raw is not None else json.dumps(payload or {}).encode()
+    kind = "application/octet-stream" if raw is not None else "application/json"
+    req = urllib.request.Request(url, data, {"Content-Type": kind})
+    with urllib.request.urlopen(req, timeout=timeout,
+                                context=HUB_TLS if url.startswith("https:") else None) as r:
+        return json.load(r)
+
+
+def snapshot(b):
+    """The sessions this machine has for one bot, and which are in away mode."""
+    found = {}
+    for f in b.sessions.glob("*.json"):
+        try:
+            s = json.loads(f.read_text())
+            found[s["sid"]] = {"sid": s["sid"], "label": s["label"], "short": s.get("short", s["label"])}
+        except (OSError, ValueError, KeyError):
+            pass
+    for f in b.away.glob("*"):
+        try:
+            s = json.loads(f.read_text())
+            found.setdefault(f.name, {"sid": f.name, "label": s["label"],
+                                      "short": s.get("short", s["label"])})
+        except (OSError, ValueError, KeyError):
+            continue
+    for sid, s in found.items():
+        s["away"] = (b.away / sid).exists()
+    return list(found.values())
+
+
+def away_rules():
+    try:
+        skill = (Path(__file__).resolve().parent / "SKILL.md").read_text()
+    except OSError:
+        return ""
+    i = skill.find("## While away mode is on")
+    return skill[i:] if i >= 0 else ""
+
+
+def apply(b, c):
+    """A command from the hub, written into the mailbox the sessions read."""
+    t = c.get("type")
+    if t == "state":
+        write_atomic(b.state, json.dumps(c["state"]))
+        return
+    sid = str(c.get("sid", c.get("rid", "")))
+    if not SAFE_ID.match(sid):
+        return
+    if t == "reply":
+        write_atomic(b.inbox / sid / f"{time.time():.6f}.json",
+                     json.dumps({"text": c["text"], "msg": c["msg"]}))
+    elif t == "answer" and c.get("verdict") in ("allow", "deny"):
+        write_atomic(b.answers / sid, c["verdict"])
+    elif t == "away":
+        try:
+            info = json.loads((b.sessions / f"{sid}.json").read_text())
+        except (OSError, ValueError):
+            return
+        notice = lambda text: write_atomic(b.inbox / sid / f"{time.time():.6f}.json",
+                                           json.dumps({"kind": "notice", "text": text}))
+        who = {k: info.get(k) for k in ("sid", "label", "short")}
+        if c.get("on") and not (b.away / sid).exists():
+            write_atomic(b.away / sid, json.dumps(info))
+            notice("Matteo turned away mode on from Telegram, as if he had typed /ooo. Until he "
+                   "turns it off, follow these rules.\n\n" + away_rules())
+            drop({"kind": "msg", "text": "away mode on (from Telegram). Reply to this message "
+                  "to talk to this session.", **who}, b)
+        elif not c.get("on") and (b.away / sid).exists():
+            (b.away / sid).unlink(missing_ok=True)
+            notice("Matteo turned away mode off from Telegram: from now on, ignore the away-mode "
+                   "rules and work as usual.")
+            drop({"kind": "msg", "text": "away mode off (from Telegram).", **who}, b)
+
+
+class Link:
+    """One mailbox's link to the hub, and for the work bot, the fallback router."""
+
+    def __init__(self, b, fallback):
+        self.b, self.fallback = b, fallback
+        self.routing = threading.Event()  # set while this machine talks to Telegram itself
+        self.stop_router = None
+        self.router_thread = None
+        self.down = False  # logged that the hub is unreachable, until it answers again
+
+    def unreachable(self, e):
+        if not self.down:
+            log(f"{self.b.bot}: hub unreachable: {e}")
+        self.down = True
+
+    def start_router(self):
+        log(f"{self.b.bot}: no hub for {HUB_GRACE:.0f} s, talking to Telegram directly")
+        self.stop_router = threading.Event()
+        self.routing.set()
+        self.router_thread = threading.Thread(
+            target=run_router, kwargs={"stop": self.stop_router, "poll_timeout": 10,
+                                       "hello": "Router up (the hub is unreachable)"}, daemon=True)
+        self.router_thread.start()
+
+    def end_router(self):
+        log(f"{self.b.bot}: the hub is back, handing the bot back to it")
+        self.stop_router.set()
+        self.router_thread.join(timeout=30)  # its last getUpdates ends within 10 s
+        self.routing.clear()
+
+    def push(self):
+        """Hand the sessions' new items to the hub as soon as they appear."""
+        b = self.b
+        while True:
+            b.alive.touch()
+            if self.routing.is_set():  # the fallback router delivers them itself
+                time.sleep(1)
+                continue
+            batch = []
+            for f in sorted(b.out.glob("*.json"))[:50]:
+                try:
+                    item = json.loads(f.read_text())
+                    if item.get("kind") == "file":
+                        fid = secrets.token_hex(8)
+                        hub(f"/v1/file?bot={b.bot}&id={fid}&name={urllib.parse.quote(item['name'])}",
+                            raw=Path(item["path"]).read_bytes(), timeout=600)
+                        item["file_id"] = fid
+                except (FileNotFoundError, ValueError, KeyError):
+                    f.unlink(missing_ok=True)  # broken or its file is gone: nothing to retry
+                    continue
+                except OSError as e:
+                    self.unreachable(e)
+                    break
+                batch.append((f, item))
+            if batch:
+                try:
+                    hub(f"/v1/push?bot={b.bot}",
+                        {"items": [{k: v for k, v in i.items() if k != "path"} for _, i in batch]})
+                except (OSError, ValueError) as e:
+                    self.unreachable(e)
+                    time.sleep(5)
+                    continue
+                for f, item in batch:
+                    if item.get("path"):
+                        Path(item["path"]).unlink(missing_ok=True)
+                    f.unlink(missing_ok=True)
+            time.sleep(0.5)
+
+    def sync(self):
+        """Long-poll the hub: report the sessions, apply its commands; and for the work bot,
+        take over Telegram after 150 s without it, then give it back."""
+        b, acks, last_ok, last_sweep, hand_back = self.b, [], time.time(), 0, False
+        while True:
+            if time.time() - last_sweep > 60:
+                last_sweep = time.time()
+                sweep((b,))
+            payload = {"mode": "router" if self.routing.is_set() else "mirror",
+                       "sessions": snapshot(b), "acks": acks,
+                       "wait": 0 if self.routing.is_set() else 25}
+            if hand_back and b.state.exists():
+                payload["state"] = json.loads(b.state.read_text())
+            try:
+                r = hub(f"/v1/sync?bot={b.bot}", payload)
+            except (OSError, ValueError) as e:
+                if self.fallback and not self.routing.is_set() and time.time() - last_ok > HUB_GRACE:
+                    self.start_router()
+                elif not self.routing.is_set():
+                    self.unreachable(e)
+                time.sleep(10 if self.routing.is_set() else 5)
+                continue
+            if self.down:
+                log(f"{b.bot}: hub reachable again")
+            last_ok, self.down = time.time(), False
+            if self.routing.is_set():  # stop talking to Telegram before the hub starts
+                self.end_router()
+                hand_back = True
+                continue
+            hand_back, acks = False, []
+            for c in r.get("cmds", []):
+                if c.get("type") == "state" and not self.fallback:
+                    continue
+                try:
+                    apply(b, c)
+                except (OSError, ValueError, KeyError) as e:
+                    log(f"{b.bot}: could not apply a command: {e}")
+                acks.append(c.get("id"))
+
+
+def mirror():
+    global HUB_TLS
+    if not CONF.get("TG_HUB_URL"):
+        sys.exit(f"Set TG_HUB_URL (and TG_HUB_CERT, TG_HUB_KEY) in {ENV} first.")
+    if router_alive(Box("work")):
+        sys.exit("A router or mirror is already running (or stopped less than a minute ago).")
+    if CONF["TG_HUB_URL"].startswith("https:"):
+        HUB_TLS = ssl.create_default_context(cafile=SYSTEM_CA if os.path.exists(SYSTEM_CA) else None)
+        HUB_TLS.load_cert_chain(os.path.expanduser(CONF["TG_HUB_CERT"]),
+                                os.path.expanduser(CONF["TG_HUB_KEY"]))
+    threads = []
+    for bot in ("work", "personal"):
+        b = Box(bot)
+        for d in (b.out, b.answers, b.away, b.inbox, b.sessions):
+            d.mkdir(parents=True, exist_ok=True)
+        # Only the work bot can fall back, where this machine has its token, and only
+        # when it is the mailbox the router code works on.
+        link = Link(b, fallback=bot == "work" and bool(CONF.get("TELEGRAM_BOT_TOKEN"))
+                    and b.dir == BOX)
+        threads += [threading.Thread(target=link.push, daemon=True),
+                    threading.Thread(target=link.sync, daemon=True)]
+    for t in threads:
+        t.start()
+    log("mirror up")
+    while all(t.is_alive() for t in threads):
+        time.sleep(5)
+    sys.exit("a mirror thread died")
 
 
 def chat_id():
@@ -722,6 +1020,8 @@ if __name__ == "__main__":
     cmd, args = (sys.argv[1:2] or [""])[0], sys.argv[2:]
     if cmd == "router":
         router()
+    elif cmd == "mirror":
+        mirror()
     elif cmd == "hook":
         hook()
     elif cmd == "stop":
@@ -731,8 +1031,8 @@ if __name__ == "__main__":
         send(" ".join(args[2:] if file else args), file)
     elif cmd == "ooo" and args and args[0] in ("on", "off") and len(args) <= 2:
         away_mode(args[0], args[1] if len(args) == 2 else os.environ.get("CLAUDE_CODE_SESSION_ID", ""))
-    elif cmd == "name-check":
-        name_check()
+    elif cmd in ("session-start", "name-check"):
+        session_start()
     elif cmd == "session-end":
         session_end()
     elif cmd == "interrupt":
