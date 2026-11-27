@@ -528,7 +528,7 @@ def fmt(text):
 
 
 def suffix(i):
-    """" · MainWorker": the chat's name in Claude Code, or the tmux session's until it has one."""
+    """" · data cleanup": the chat's name in Claude Code, or the tmux session's until it has one."""
     return f" · {i.get('title') or i.get('short') or i['label']}"
 
 
