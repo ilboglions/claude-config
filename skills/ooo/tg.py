@@ -7,6 +7,7 @@
   tg.py mirror          keep this machine's mailboxes in sync with a hub
   tg.py hook            PermissionRequest hook: while /ooo is on, also ask on Telegram
   tg.py stop            Stop hook: wait for Matteo's reply in the background
+  tg.py start-wait      SessionStart hook: the same, from the session's start
   tg.py interrupt       PostToolUse hook: a reply is waiting, end the turn now
   tg.py wake            PostToolUse hook: then hand the reply over, once the turn has ended
   tg.py busy            UserPromptSubmit hook: a turn is starting
@@ -275,8 +276,17 @@ def hand_over(sid, idle=2):
     sys.exit(2)
 
 
-def stop():
+def start_wait():
+    """SessionStart hook, asyncRewake: a session that starts in away mode (on an
+    always-away machine, or resumed while away) waits for Telegram from the start,
+    not only once its first turn has ended."""
     req = json.load(sys.stdin)
+    time.sleep(2)  # let session-start register the session and set its flag
+    stop(req)
+
+
+def stop(req=None):
+    req = req if req is not None else json.load(sys.stdin)
     sid = req.get("session_id", "none")
     away, mark_file = AWAY / sid, WAITING / sid
     # A session in away mode always waits; with a hub, any other registered session
@@ -1054,6 +1064,8 @@ if __name__ == "__main__":
         hook()
     elif cmd == "stop":
         stop()
+    elif cmd == "start-wait":
+        start_wait()
     elif cmd == "send" and (args[1:] if args[:1] == ["--file"] else args):
         file = args[1] if args[:1] == ["--file"] else None
         send(" ".join(args[2:] if file else args), file)
