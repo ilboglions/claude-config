@@ -209,21 +209,30 @@ def session_start():
                                                  "additionalContext": "\n\n".join(context)}}))
 
 
+def other_boxes():
+    """This machine's other bots' mailboxes: a project can switch bot mid-session."""
+    home = Path.home() / ".claude"
+    return [Box("work" if d.name == "tg" else d.name[3:])
+            for d in (home / "tg", *home.glob("tg-*")) if d.is_dir() and d != B.dir]
+
+
 def session_end():
-    """SessionEnd hook: a session that exits is unregistered, and leaves away mode."""
+    """SessionEnd hook: a session that exits is unregistered, and leaves away mode, on
+    every bot (its project may have switched bot while it ran)."""
     req = json.load(sys.stdin)
     sid = req.get("session_id", "")
     if not SAFE_ID.match(sid):
         return
-    (SESSIONS / f"{sid}.json").unlink(missing_ok=True)
-    flag = AWAY / sid
-    if not flag.exists():
-        return
-    try:
-        info = json.loads(flag.read_text())
-    except ValueError:
-        info = origin(sid, req.get("cwd"))
-    end_session(sid, info)
+    for b in (B, *other_boxes()):
+        (b.sessions / f"{sid}.json").unlink(missing_ok=True)
+        flag = b.away / sid
+        if not flag.exists():
+            continue
+        try:
+            info = json.loads(flag.read_text())
+        except ValueError:
+            info = origin(sid, req.get("cwd"))
+        end_session(sid, info, b)
 
 
 def end_session(sid, info, b=B):
@@ -436,6 +445,9 @@ def away_mode(state, sid):
             drop({"kind": "msg", "text": "away mode off.", **origin(sid)})
         print("away mode off")
         return
+    for b in other_boxes():  # a project that switched bot leaves the old one's list
+        (b.away / sid).unlink(missing_ok=True)
+        (b.sessions / f"{sid}.json").unlink(missing_ok=True)
     info = origin(sid)
     write_atomic(flag, json.dumps({**info, **where()}))
     drop({"kind": "msg", "text": "away mode on. Reply to this message to talk to this session.",
@@ -651,7 +663,9 @@ def sweep(boxes=(B,)):
             else:
                 log(f"{info.get('label')} died without its SessionEnd hook; leaving away mode")
                 end_session(f.name, info, b)
-    suspects.clear()
+    # Only this sweep's bots: each bot's mirror sweeps its own, and must not reset the others'.
+    swept = tuple(str(b.dir) + os.sep for b in boxes)
+    suspects.difference_update({k for k in suspects if k.startswith(swept)})
     suspects.update(dead)
 
 
