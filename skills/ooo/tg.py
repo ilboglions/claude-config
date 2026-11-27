@@ -488,21 +488,21 @@ def fmt(text):
     return "".join(out) + html.escape(text[pos:], quote=False)
 
 
-def suffix(i):
-    """" · lacuna2": the tmux session's name, only while another live session (away or
-    not) has the same project name, so the two can be told apart."""
+def suffix(i, away):
+    """" · lacuna2": the tmux session's name, only while another session in away mode
+    has the same project name, so the two can be told apart."""
     short = i.get("short") or i["label"]
-    twin = any(o["sid"] != i.get("sid") and o["label"] == i["label"] for o in snapshot(B))
+    twin = any(sid != i.get("sid") and o["label"] == i["label"] for sid, o in away.items())
     return f" · {short}" if twin and short != i["label"] else ""
 
 
-def shown(i):  # the name on buttons and prompts
-    return i["label"] + suffix(i)
+def shown(i, away=None):  # the name on buttons and prompts
+    return i["label"] + suffix(i, away_sessions() if away is None else away)
 
 
 def head(i):  # the header line: the project's name in bold, the session's plain if needed
     return (f"<b>{html.escape(i['label'], quote=False)}</b>"
-            + html.escape(suffix(i), quote=False))
+            + html.escape(suffix(i, away_sessions()), quote=False))
 
 
 def send_html(method, key, text, **params):
@@ -673,7 +673,7 @@ def pick_session(reply_to=None):
     if not away:
         api("sendMessage", chat_id=CHAT, text="No session is in away mode.")
         return
-    names = {sid: shown({"sid": sid, **i}) for sid, i in away.items()}
+    names = {sid: shown({"sid": sid, **i}, away) for sid, i in away.items()}
     rows = [[{"text": names[sid], "callback_data": f"to:{sid}"}]
             for sid in sorted(names, key=lambda s: names[s].lower())]
     api("sendMessage", chat_id=CHAT, text="Which session? Tap one, then write your message.",
@@ -689,7 +689,7 @@ def prompt_for(sid):
         api("sendMessage", chat_id=CHAT, text="That session is no longer in away mode.")
         return
     i = {"sid": sid, **away[sid]}
-    name = shown(i)
+    name = shown(i, away)
     m = api("sendMessage", chat_id=CHAT, text=f"✍️ Message for {name}:",
             reply_markup={"force_reply": True, "input_field_placeholder": f"to {name}"[:64]})
     state["msgs"][str(m["message_id"])] = i
