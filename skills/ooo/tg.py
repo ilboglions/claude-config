@@ -781,8 +781,15 @@ def run_router(stop=None, poll_timeout=50, hello="Router up"):
 
 def router():
     if CONF.get("TG_HUB_URL"):
-        mirror()
-        return
+        try:
+            hub_tls()
+        except (OSError, ValueError, AttributeError) as e:
+            # Better the plain router than nobody: the hub only polls the work bot while
+            # this machine's mirror syncs, so the two can't collide.
+            log(f"the hub's client certificate is unusable ({e}); running the plain router")
+        else:
+            mirror()
+            return
     if router_alive():
         sys.exit("A router is already running (or stopped less than a minute ago).")
     run_router()
@@ -977,16 +984,22 @@ class Link:
                 acks.append(c.get("id"))
 
 
-def mirror():
+def hub_tls():
+    """The TLS context with this machine's client certificate (https hubs only)."""
     global HUB_TLS
+    if CONF["TG_HUB_URL"].startswith("https:") and HUB_TLS is None:
+        ctx = ssl.create_default_context(cafile=SYSTEM_CA if os.path.exists(SYSTEM_CA) else None)
+        ctx.load_cert_chain(os.path.expanduser(CONF.get("TG_HUB_CERT", "")),
+                            os.path.expanduser(CONF.get("TG_HUB_KEY", "")))
+        HUB_TLS = ctx
+
+
+def mirror():
     if not CONF.get("TG_HUB_URL"):
         sys.exit(f"Set TG_HUB_URL (and TG_HUB_CERT, TG_HUB_KEY) in {ENV} first.")
     if router_alive(Box("work")):
         sys.exit("A router or mirror is already running (or stopped less than a minute ago).")
-    if CONF["TG_HUB_URL"].startswith("https:"):
-        HUB_TLS = ssl.create_default_context(cafile=SYSTEM_CA if os.path.exists(SYSTEM_CA) else None)
-        HUB_TLS.load_cert_chain(os.path.expanduser(CONF["TG_HUB_CERT"]),
-                                os.path.expanduser(CONF["TG_HUB_KEY"]))
+    hub_tls()
     threads = []
     for bot in ("work", "personal"):
         b = Box(bot)
