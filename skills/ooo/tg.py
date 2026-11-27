@@ -116,7 +116,46 @@ def origin(sid, cwd=None):
     # jsh (mymila) hands the tmux session's name to the shell on the job.
     short = os.environ.get("JSH_SESSION") or os.path.basename(cwd.rstrip("/")) or cwd
     # The project's own name, from env.TG_NAME in its .claude/settings.local.json.
-    return {"sid": sid, "label": os.environ.get("TG_NAME") or short, "short": short}
+    return {"sid": sid, "label": os.environ.get("TG_NAME") or short, "short": short,
+            "title": chat_title(sid)}
+
+
+_titles = {}  # sid -> (transcript, its size when read, title)
+
+
+def chat_title(sid):
+    """The chat's name as Claude Code shows it: the one given with /rename, else the one it
+    made up. Claude Code writes both into the transcript again and again, so the tail
+    holds the latest."""
+    if not SAFE_ID.match(sid or ""):
+        return ""
+    path, size, title = _titles.get(sid, (None, -1, ""))
+    try:
+        # a chat moved to another folder leaves its old transcript behind: take the live one
+        path = path or max((Path.home() / ".claude" / "projects").glob(f"*/{sid}.jsonl"),
+                           key=lambda t: t.stat().st_mtime)
+        now = path.stat().st_size
+        if now != size:
+            title = ""
+            with open(path, "rb") as f:
+                f.seek(max(0, now - 1_000_000))
+                tail = f.read()
+            for line in reversed(tail.splitlines()):
+                if b'-title"' not in line:
+                    continue
+                try:
+                    d = json.loads(line)
+                except ValueError:
+                    continue
+                if d.get("type") == "custom-title" and d.get("customTitle"):
+                    title = d["customTitle"]
+                    break
+                if d.get("type") == "ai-title" and not title:
+                    title = d.get("aiTitle") or ""
+            _titles[sid] = (path, now, title)
+    except (ValueError, OSError):  # no transcript (yet)
+        return ""
+    return title
 
 
 def claude_pid():
@@ -488,21 +527,17 @@ def fmt(text):
     return "".join(out) + html.escape(text[pos:], quote=False)
 
 
-def suffix(i, away):
-    """" · lacuna2": the tmux session's name, only while another session in away mode
-    has the same project name, so the two can be told apart."""
-    short = i.get("short") or i["label"]
-    twin = any(sid != i.get("sid") and o["label"] == i["label"] for sid, o in away.items())
-    return f" · {short}" if twin and short != i["label"] else ""
+def suffix(i):
+    """" · MainWorker": the chat's name in Claude Code, or the tmux session's until it has one."""
+    return f" · {i.get('title') or i.get('short') or i['label']}"
 
 
-def shown(i, away=None):  # the name on buttons and prompts
-    return i["label"] + suffix(i, away_sessions() if away is None else away)
+def shown(i):  # the name on buttons and prompts
+    return i["label"] + suffix(i)
 
 
-def head(i):  # the header line: the project's name in bold, the session's plain if needed
-    return (f"<b>{html.escape(i['label'], quote=False)}</b>"
-            + html.escape(suffix(i, away_sessions()), quote=False))
+def head(i):  # the header line: the project's name in bold, the chat's name plain
+    return f"<b>{html.escape(i['label'], quote=False)}</b>" + html.escape(suffix(i), quote=False)
 
 
 def send_html(method, key, text, **params):
@@ -673,7 +708,7 @@ def pick_session(reply_to=None):
     if not away:
         api("sendMessage", chat_id=CHAT, text="No session is in away mode.")
         return
-    names = {sid: shown({"sid": sid, **i}, away) for sid, i in away.items()}
+    names = {sid: shown({"sid": sid, **i}) for sid, i in away.items()}
     rows = [[{"text": names[sid], "callback_data": f"to:{sid}"}]
             for sid in sorted(names, key=lambda s: names[s].lower())]
     api("sendMessage", chat_id=CHAT, text="Which session? Tap one, then write your message.",
@@ -689,7 +724,7 @@ def prompt_for(sid):
         api("sendMessage", chat_id=CHAT, text="That session is no longer in away mode.")
         return
     i = {"sid": sid, **away[sid]}
-    name = shown(i, away)
+    name = shown(i)
     m = api("sendMessage", chat_id=CHAT, text=f"✍️ Message for {name}:",
             reply_markup={"force_reply": True, "input_field_placeholder": f"to {name}"[:64]})
     state["msgs"][str(m["message_id"])] = i
@@ -851,6 +886,7 @@ def snapshot(b):
             continue
     for sid, s in found.items():
         s["away"] = (b.away / sid).exists()
+        s["title"] = chat_title(sid)
     return list(found.values())
 
 
