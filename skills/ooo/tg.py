@@ -30,7 +30,10 @@ import secrets
 import shutil
 import signal
 import socket
-import ssl
+try:
+    import ssl
+except ImportError:  # a Python without its OpenSSL (a cluster module not loaded): hooks don't need it
+    ssl = None
 import subprocess
 import sys
 import threading
@@ -392,7 +395,7 @@ def log(text):
 # Mila's python/3.10 module ships a CA bundle that cannot verify Telegram's
 # certificate chain; the system bundle can.
 SYSTEM_CA = "/etc/ssl/certs/ca-certificates.crt"
-TLS = ssl.create_default_context(cafile=SYSTEM_CA if os.path.exists(SYSTEM_CA) else None)
+TLS = ssl.create_default_context(cafile=SYSTEM_CA if os.path.exists(SYSTEM_CA) else None) if ssl else None
 
 
 class RateLimited(OSError):
