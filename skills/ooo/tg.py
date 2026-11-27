@@ -137,23 +137,35 @@ def where():
 
 
 def session_start():
-    """SessionStart hook: register the session, and in a git project with no TG_NAME
-    yet, have Claude ask for one."""
+    """SessionStart hook: register the session; on a machine set to be always away, turn
+    away mode on; and in a git project with no TG_NAME yet, have Claude ask for one."""
     req = json.load(sys.stdin)
     sid, cwd = req.get("session_id", ""), Path(req.get("cwd") or os.getcwd())
+    context = []
     if SAFE_ID.match(sid):
-        write_atomic(SESSIONS / f"{sid}.json", json.dumps({**origin(sid, str(cwd)), **where()}))
-    if "TG_NAME" in os.environ or not ENV.exists():  # answered already, or no Telegram here
-        return
-    if not any((d / ".git").exists() for d in (cwd, *cwd.parents)):
-        return
-    print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext":
-        "This project has no name yet for Matteo's Telegram away mode (/ooo). In your first "
-        "reply, ask him in one short line whether he wants to give it one: emojis are welcome "
-        "(for example \"🟦 Multi-agent detection\"), or no name. Write his answer as env.TG_NAME "
-        f"in {cwd}/.claude/settings.local.json, keeping whatever else that file holds. If he "
-        "says no, write an empty string: it means don't ask again, and Telegram keeps showing "
-        "the session's name."}}))
+        info = {**origin(sid, str(cwd)), **where()}
+        write_atomic(SESSIONS / f"{sid}.json", json.dumps(info))
+        # A machine Matteo only reaches through Telegram: every session is away from the start.
+        if CONF.get("TG_ALWAYS_AWAY", "").lower() in ("1", "yes", "true"):
+            if not (AWAY / sid).exists():
+                write_atomic(AWAY / sid, json.dumps(info))
+                drop({"kind": "msg", "text": "session started, away mode on. Reply to this "
+                      "message to talk to it.", **origin(sid, str(cwd))})
+            context.append("Matteo reaches this machine only through Telegram, so away mode is "
+                           "on for this session from the start, as if he had typed /ooo. "
+                           "Follow these rules.\n\n" + away_rules())
+    if "TG_NAME" not in os.environ and ENV.exists() and \
+            any((d / ".git").exists() for d in (cwd, *cwd.parents)):
+        context.append(
+            "This project has no name yet for Matteo's Telegram away mode (/ooo). In your first "
+            "reply, ask him in one short line whether he wants to give it one: emojis are welcome "
+            "(for example \"🟦 Multi-agent detection\"), or no name. Write his answer as env.TG_NAME "
+            f"in {cwd}/.claude/settings.local.json, keeping whatever else that file holds. If he "
+            "says no, write an empty string: it means don't ask again, and Telegram keeps showing "
+            "the session's name.")
+    if context:
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart",
+                                                 "additionalContext": "\n\n".join(context)}}))
 
 
 def session_end():

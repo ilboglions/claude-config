@@ -191,7 +191,8 @@ start, so the hub can list it and turn its away mode on or off. Where the bot to
 present, the router takes the bot back while the hub is unreachable, and hands it over
 again when it returns. The hub's address and certificate go in each machine's private
 `~/.config/telegram.env` (see `telegram.env.example`); the hub itself is not part of
-this repo.
+this repo. On a machine reached only through Telegram, `TG_ALWAYS_AWAY=1` there starts every
+session in away mode.
 
 Setup, once, on the cluster:
 
