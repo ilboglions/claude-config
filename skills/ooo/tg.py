@@ -106,6 +106,8 @@ def write_atomic(path, text):
 
 
 def drop(item, b=B):
+    if item.get("sid"):  # the chat's name as it is now, for the header
+        item = {**item, "chat": chat_title(item["sid"])}
     path = b.out / f"{time.time():.6f}-{secrets.token_hex(3)}.json"
     write_atomic(path, json.dumps(item))
     return path
@@ -116,8 +118,7 @@ def origin(sid, cwd=None):
     # jsh (mymila) hands the tmux session's name to the shell on the job.
     short = os.environ.get("JSH_SESSION") or os.path.basename(cwd.rstrip("/")) or cwd
     # The project's own name, from env.TG_NAME in its .claude/settings.local.json.
-    return {"sid": sid, "label": os.environ.get("TG_NAME") or short, "short": short,
-            "title": chat_title(sid)}
+    return {"sid": sid, "label": os.environ.get("TG_NAME") or short, "short": short}
 
 
 _titles = {}  # sid -> (transcript, its size when read, title)
@@ -529,7 +530,7 @@ def fmt(text):
 
 def suffix(i):
     """" · data cleanup": the chat's name in Claude Code, or the tmux session's until it has one."""
-    return f" · {i.get('title') or i.get('short') or i['label']}"
+    return f" · {i.get('chat') or chat_title(i.get('sid', '')) or i.get('short') or i['label']}"
 
 
 def shown(i):  # the name on buttons and prompts
@@ -886,7 +887,7 @@ def snapshot(b):
             continue
     for sid, s in found.items():
         s["away"] = (b.away / sid).exists()
-        s["title"] = chat_title(sid)
+        s["chat"] = chat_title(sid)
     return list(found.values())
 
 
