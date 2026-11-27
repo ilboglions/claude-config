@@ -773,6 +773,15 @@ def handle(u):
     if text.strip().split("@")[0] in ("/list", "/to"):  # pick by tapping, nothing to type
         pick_session()
         return
+    cmd = text.split()[0].split("@")[0] if text.startswith("/") else ""
+    if cmd and cmd != "/to":  # a command this router doesn't know: never a message for a session
+        job = os.environ.get("SLURM_JOB_ID")
+        if cmd == "/anchor" and job:  # this router runs inside the anchor job, so it is running
+            reply(f"The anchor job is running (job {job}): this answer comes from it.")
+        else:
+            reply("Only /to and /list work here" +
+                  (" while the hub is unreachable." if CONF.get("TG_HUB_URL") else "."))
+        return
     if text.startswith("/to "):
         # The name is the project's name or the session's, and may be several words:
         # take the longest run of leading words that matches one.
