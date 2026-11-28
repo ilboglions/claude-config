@@ -456,6 +456,66 @@ def away_mode(state, sid):
     warn_if_no_router()
 
 
+# ---- for a program that owns its Claude session ----------------------------------
+# A server that runs Claude itself (through the Agent SDK, with approvals in its own UI)
+# bridges Telegram with these, under a fixed id of its own, and sets TG_OWNER=server for
+# its Claude CLI so that the hooks above stand down inside that session.
+
+def register(sid, label, short=None):
+    """List the program on the bot (/sessions, /to) and in away mode, so replies reach it.
+    The mirror unlists it by itself if this process dies."""
+    info = {"sid": sid, "label": label, "short": short or os.path.basename(os.getcwd()),
+            "job": "", "host": socket.gethostname(), "pid": os.getpid()}
+    write_atomic(SESSIONS / f"{sid}.json", json.dumps(info))
+    write_atomic(AWAY / sid, json.dumps(info))
+    return info
+
+
+def unregister(sid):
+    (SESSIONS / f"{sid}.json").unlink(missing_ok=True)
+    (AWAY / sid).unlink(missing_ok=True)
+
+
+def put(item):
+    """Queue one item for the bot, from a registered sid:
+    {"kind": "msg", "sid", "text"}, optionally with "file": a path (sent as a photo or
+    document); {"kind": "perm", "id", "sid", "tool", "title", "preview"}, a Yes/No whose
+    answer comes back through answer(id); {"kind": "done", "id"}, that prompt was settled
+    elsewhere."""
+    try:
+        reg = json.loads((SESSIONS / f"{item.get('sid')}.json").read_text())
+    except (OSError, ValueError):
+        reg = {}
+    return drop({**{k: reg[k] for k in ("label", "short") if k in reg}, **item})
+
+
+def inbox(sid):
+    """Matteo's new replies to sid, oldest first, each returned once: [{"text", "msg"}].
+    Each one gets its 👍 on Telegram."""
+    out = []
+    for f in sorted((INBOX / sid).glob("*.json")):
+        try:
+            item = json.loads(f.read_text())
+        except (OSError, ValueError):
+            continue
+        f.unlink(missing_ok=True)
+        out.append(item)
+        if item.get("msg"):
+            drop({"kind": "delivered", "msg": item["msg"]})
+    return out
+
+
+def answer(rid):
+    """"allow" or "deny" once Matteo tapped Yes or No for prompt rid, else None. Read once."""
+    f = ANSWERS / rid
+    try:
+        verdict = f.read_text().strip()
+    except OSError:
+        return None
+    f.unlink(missing_ok=True)
+    return verdict if verdict in ("allow", "deny") else None
+
+
 # ---- router -----------------------------------------------------------------
 
 lock = threading.Lock()
@@ -1116,6 +1176,11 @@ def chat_id():
 
 if __name__ == "__main__":
     cmd, args = (sys.argv[1:2] or [""])[0], sys.argv[2:]
+    if os.environ.get("TG_OWNER") and cmd in (
+            "hook", "stop", "start-wait", "session-start", "name-check", "session-end",
+            "interrupt", "wake", "busy"):
+        sys.stdin.read()  # a program owns this session and bridges Telegram itself
+        sys.exit(0)
     if cmd == "router":
         router()
     elif cmd == "mirror":
